@@ -1,21 +1,96 @@
-name: ci
+# Continuous Integration for expressir-rs
+#
+# Practices adopted from parsanol-rs:
+# - Typos spell check
+# - Format and clippy gates with warnings denied
+# - Multi-platform testing (Linux, Windows, macOS)
+# - MSRV and beta toolchains
+# - Documentation build
+# - Grammar no-drift against the Ruby tier
+
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUST_BACKTRACE: short
+  RUSTFLAGS: "-D warnings"
 
 jobs:
+  typos:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crate-ci/typos@v1.45.0
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets
+
   test:
+    name: Test (${{ matrix.os }} / ${{ matrix.toolchain }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        toolchain: [stable]
+        include:
+          - os: ubuntu-latest
+            toolchain: "1.86" # MSRV (criterion-era toolchain, matches parsanol-rs)
+          - os: ubuntu-latest
+            toolchain: beta
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test
+      - run: cargo build --examples
+
+  doc:
+    name: Documentation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test
-      - run: cargo build --examples
+      - env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --no-deps
 
   grammar-no-drift:
+    name: Grammar no-drift
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

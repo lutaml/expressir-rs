@@ -1,0 +1,23 @@
+# Release-plz configuration for expressir-rs
+#
+# Automated versioning and changelog generation on every push to main.
+# The crate is consumed via git dependency (expressir's native ext), so
+# crates.io publishing stays disabled; releases are version bumps,
+# changelogs, and git tags.
+# See: https://release-plz.dev/docs/config
+
+[workspace]
+dependencies_update = true
+git_release_enable = true
+
+[changelog]
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | upper_first }}\
+{% if commit.breaking %} (BREAKING){% endif %}\
+{% if commit.author != "github-actions[bot]" %} by @{{ commit.author }}{% endif %}\
+{% endfor %}
+{% endfor %}
+"""
