@@ -10,9 +10,11 @@
 
 pub mod extract;
 pub mod model;
+pub mod model_json;
 pub mod walk;
 
 pub use extract::extract_file;
+pub use model_json::model_json;
 pub use model::*;
 
 use std::sync::OnceLock;
@@ -71,5 +73,15 @@ impl ParsedTree {
     /// Extract the declaration-level model from this tree.
     pub fn to_model(&self) -> Repository {
         extract_file(self)
+    }
+
+    /// Emit the sparse lutaml-model wire JSON for this tree: the exact
+    /// shape `Expressir::Model::ExpFile#to_hash` produces on the Ruby
+    /// side, ready for `from_hash` hydration.
+    pub fn to_model_json(
+        &self,
+        path: &str,
+    ) -> Result<serde_json::Value, crate::model_json::ModelJsonError> {
+        model_json(self.arena(), self.root(), path)
     }
 }

@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "bundler/gem_tasks"
 
 desc "Regenerate assets/express-grammar.json from the expressir grammar"
 task :"expressir:grammar:dump" do
