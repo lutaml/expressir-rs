@@ -1,5 +1,7 @@
 # 04 — Fixture corpus deepening to metanorma schemas
 
+**Status: DONE** (2026-09-19)
+
 Deepen the Rust serde through the real ISO 10303 schemas the smol
 collection renders (certification, action, approval, ...): select and
 enumeration types, function bodies with statements/expressions,
@@ -15,3 +17,7 @@ headers. Extend fixtures + expected JSON per node type.
 ## Acceptance
 Every smol-collection schema parses to a to_hash-equal model via the
 core path.
+
+## Update 2026-09-19
+
+parser_core_parity_spec.rb in expressir PR #370 gates structural to_hash equality on every spec/syntax fixture plus failure-mode parity. Corpus result: 0 structural diffs; 12/17 byte-identical incl. remarks; 5 remark-attachment-only; 2 unparseable on both paths.
