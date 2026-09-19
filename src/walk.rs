@@ -130,8 +130,8 @@ pub fn first_slice_offset(arena: &AstArena, node: &AstNode, depth: usize) -> Opt
 
 /// Recursively yield every hash node reachable from `node`, including
 /// `node` itself when it is a hash.
-pub fn self_and_descendant_hashes<'a>(
-    arena: &'a AstArena,
+pub fn self_and_descendant_hashes(
+    arena: &AstArena,
     node: &AstNode,
     out: &mut Vec<(String, AstNode)>,
 ) {

@@ -1,0 +1,26 @@
+# Configuration for typos spell checker
+# See: https://github.com/crate-ci/typos
+
+[files]
+extend-exclude = ["target/", ".git/", "assets/"]
+
+[default.extend-words]
+# Project terms
+expressir = "expressir"
+Expressir = "Expressir"
+parsanol = "parsanol"
+Parsanol = "Parsanol"
+lutaml = "lutaml"
+
+# EXPRESS domain terms
+supertype = "supertype"
+subtype = "subtype"
+enumeration = "enumeration"
+redeclared = "redeclared"
+where_rules = "where_rules"
+
+# Rust/code terms
+ast = "ast"
+expr = "expr"
+lexer = "lexer"
+serde = "serde"

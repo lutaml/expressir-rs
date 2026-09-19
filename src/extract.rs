@@ -229,7 +229,7 @@ fn extract_function(arena: &AstArena, node: &AstNode) -> FunctionDecl {
     let name = rule_id_str(
         arena,
         head.as_ref()
-            .and_then(|h| hash_get(arena, &h, "functionId"))
+            .and_then(|h| hash_get(arena, h, "functionId"))
             .as_ref(),
     );
     let parameters = head
@@ -245,7 +245,7 @@ fn extract_procedure(arena: &AstArena, node: &AstNode) -> ProcedureDecl {
     let name = rule_id_str(
         arena,
         head.as_ref()
-            .and_then(|h| hash_get(arena, &h, "procedureId"))
+            .and_then(|h| hash_get(arena, h, "procedureId"))
             .as_ref(),
     );
     let parameters = head
@@ -261,7 +261,7 @@ fn extract_rule(arena: &AstArena, node: &AstNode) -> RuleDecl {
     let name = rule_id_str(
         arena,
         head.as_ref()
-            .and_then(|h| hash_get(arena, &h, "ruleId"))
+            .and_then(|h| hash_get(arena, h, "ruleId"))
             .as_ref(),
     );
     RuleDecl {
@@ -275,7 +275,7 @@ fn extract_subtype_constraint(arena: &AstArena, node: &AstNode) -> SubtypeConstr
     let name = rule_id_str(
         arena,
         head.as_ref()
-            .and_then(|h| hash_get(arena, &h, "subtypeConstraintId"))
+            .and_then(|h| hash_get(arena, h, "subtypeConstraintId"))
             .as_ref(),
     );
     SubtypeConstraintDecl { name }

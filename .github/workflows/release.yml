@@ -1,0 +1,37 @@
+# Release pipeline for expressir-rs.
+#
+# release-plz creates the release PR (version + changelog) on every push
+# to main; merging it tags and marks the release. crates.io publishing
+# stays disabled — the crate is consumed through a git dependency by
+# expressir's native extension.
+#
+# See: https://release-plz.dev/docs/config
+
+name: Release
+
+permissions:
+  pull-requests: write
+  contents: write
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release-plz:
+    name: Release-plz
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run release-plz
+        uses: MarcoIeni/release-plz-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
