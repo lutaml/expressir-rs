@@ -21,12 +21,15 @@ pub fn hash_get(arena: &AstArena, node: &AstNode, key: &str) -> Option<AstNode> 
 
 /// Keys present in a hash node.
 pub fn hash_keys(arena: &AstArena, node: &AstNode) -> Vec<String> {
+    hash_pairs(arena, node).into_iter().map(|(k, _)| k).collect()
+}
+
+/// All key-value pairs of a hash node, in insertion order.
+pub fn hash_pairs(arena: &AstArena, node: &AstNode) -> Vec<(String, AstNode)> {
     match node {
-        AstNode::Hash { pool_index, length } => arena
-            .get_hash_items(*pool_index as usize, *length as usize)
-            .into_iter()
-            .map(|(k, _)| k)
-            .collect(),
+        AstNode::Hash { pool_index, length } => {
+            arena.get_hash_items(*pool_index as usize, *length as usize)
+        }
         _ => Vec::new(),
     }
 }
@@ -66,6 +69,26 @@ pub fn text(arena: &AstArena, node: &AstNode) -> Option<String> {
                 .map(|s| s.to_string())
         }
         _ => None,
+    }
+}
+
+/// Depth-first first `str` found under `node` (hash values and array
+/// elements in insertion order) — mirrors the builders'
+/// extract_nested_text, minus the Parsanol::Slice special case.
+pub fn nested_text(arena: &AstArena, node: &AstNode) -> Option<String> {
+    match node {
+        AstNode::Hash { .. } => {
+            if let Some(s) = hash_get(arena, node, "str").and_then(|s| text(arena, &s)) {
+                return Some(s);
+            }
+            hash_pairs(arena, node)
+                .into_iter()
+                .find_map(|(_, v)| nested_text(arena, &v))
+        }
+        AstNode::Array { .. } => as_list(arena, node)
+            .into_iter()
+            .find_map(|v| nested_text(arena, &v)),
+        _ => text(arena, node),
     }
 }
 

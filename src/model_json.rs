@@ -1,31 +1,49 @@
-//! Emits the sparse lutaml-model wire JSON for the surface the
-//! extractor covers: the exact shape `Expressir::Model::ExpFile#to_hash`
-//! produces on the Ruby side, so Ruby can hydrate the Rust-extracted
-//! model with `ExpFile.from_hash` and get a model indistinguishable
-//! from the Ruby parse path.
+//! Emits the sparse lutaml-model wire JSON for the surface the walker
+//! covers: the exact shape `Expressir::Model::ExpFile#to_hash` produces
+//! on the Ruby side, so Ruby can hydrate the Rust-extracted model with
+//! `ExpFile.from_hash` and get a model indistinguishable from the Ruby
+//! parse path.
 //!
-//! lutaml-model omits nil/default attributes from to_hash, so the
-//! emission is sparse: only keys whose value is present (non-nil,
-//! non-empty) are written, and every node carries its `_class` marker.
+//! Submodules mirror the Ruby model hierarchy (MECE by concern):
+//! - `declarations` — schema-level declarations and algorithm heads
+//! - `data_types`   — parameter/instantiable/underlying types
+//! - `expressions`  — the expression chain, literals, references
+//! - `statements`   — algorithmic statements
+//!
+//! Sparse emission: lutaml-model omits nil/default attributes from
+//! to_hash, so keys are written only when present, and every node
+//! carries its `_class` marker. `base_path` is intentionally NOT
+//! emitted — ResolveReferencesModelVisitor annotates resolved
+//! references after hydration, exactly as it does for the Ruby-built
+//! model.
+
+mod declarations;
+mod data_types;
+mod expressions;
+mod statements;
 
 use serde_json::{Map, Value};
 
 use parsanol::portable::{AstArena, AstNode};
 
-use crate::extract::{rule_id_str, rule_id_str_opt, unquote};
-use crate::walk::{as_list, hash_get, text};
+use crate::extract::{rule_id_str, unquote};
+use crate::walk::{as_list, hash_get, hash_pairs, nested_text, text};
 
-const CLASS_EXP_FILE: &str = "Expressir::Model::ExpFile";
-const CLASS_SCHEMA: &str = "Expressir::Model::Declarations::Schema";
-const CLASS_ENTITY: &str = "Expressir::Model::Declarations::Entity";
-const CLASS_SCHEMA_VERSION: &str = "Expressir::Model::Declarations::SchemaVersion";
-const CLASS_SIMPLE_REFERENCE: &str = "Expressir::Model::References::SimpleReference";
+pub(crate) const CLASS_EXP_FILE: &str = "Expressir::Model::ExpFile";
+pub(crate) const CLASS_SCHEMA: &str = "Expressir::Model::Declarations::Schema";
+pub(crate) const CLASS_SCHEMA_VERSION: &str = "Expressir::Model::Declarations::SchemaVersion";
+pub(crate) const CLASS_SCHEMA_VERSION_ITEM: &str =
+    "Expressir::Model::Declarations::SchemaVersionItem";
+pub(crate) const CLASS_INTERFACE: &str = "Expressir::Model::Declarations::Interface";
+pub(crate) const CLASS_INTERFACE_ITEM: &str = "Expressir::Model::Declarations::InterfaceItem";
+pub(crate) const CLASS_SIMPLE_REFERENCE: &str = "Expressir::Model::References::SimpleReference";
 
-pub fn model_json(
-    arena: &AstArena,
-    root: &AstNode,
-    path: &str,
-) -> Result<Value, ModelJsonError> {
+#[derive(Debug)]
+pub enum ModelJsonError {
+    MissingNode,
+}
+
+pub fn model_json(arena: &AstArena, root: &AstNode, path: &str) -> Result<Value, ModelJsonError> {
     let mut schemas = Vec::new();
 
     if let Some(syntax) = hash_get(arena, root, "syntax") {
@@ -38,127 +56,187 @@ pub fn model_json(
         }
     }
 
-    let mut root_map = Map::new();
-    root_map.insert("_class".into(), Value::String(CLASS_EXP_FILE.into()));
+    let mut root_map = node(CLASS_EXP_FILE);
     root_map.insert("path".into(), Value::String(path.into()));
     root_map.insert("schemas".into(), Value::Array(schemas));
     Ok(Value::Object(root_map))
 }
 
-#[derive(Debug)]
-pub enum ModelJsonError {
-    MissingNode,
-}
-
-fn schema_json(
-    arena: &AstArena,
-    decl: &AstNode,
-    path: &str,
-) -> Result<Value, ModelJsonError> {
+fn schema_json(arena: &AstArena, decl: &AstNode, path: &str) -> Result<Value, ModelJsonError> {
     let id = rule_id_str(arena, hash_get(arena, decl, "schemaId").as_ref());
 
-    let mut map = Map::new();
-    map.insert("_class".into(), Value::String(CLASS_SCHEMA.into()));
-    map.insert("id".into(), Value::String(id.clone()));
+    let mut map = node(CLASS_SCHEMA);
+    map.insert("id".into(), Value::String(id));
     map.insert("file".into(), Value::String(path.into()));
 
-    let version = hash_get(arena, decl, "schemaVersionId")
-        .and_then(|v| hash_get(arena, &v, "stringLiteral"))
-        .and_then(|l| hash_get(arena, &l, "simpleStringLiteral"))
-        .and_then(|s| hash_get(arena, &s, "str"))
-        .and_then(|n| text(arena, &n))
-        .map(unquote);
-    if let Some(value) = version {
-        let mut version_map = Map::new();
-        version_map
-            .insert("_class".into(), Value::String(CLASS_SCHEMA_VERSION.into()));
-        version_map.insert("value".into(), Value::String(value));
-        map.insert("version".into(), Value::Object(version_map));
+    if let Some(version) = hash_get(arena, decl, "schemaVersionId") {
+        map.insert("version".into(), version_json(arena, &version));
     }
 
-    let head = hash_get(arena, decl, "schemaBody");
-    if let Some(body) = head.as_ref() {
-        if let Some(entities) = entities_json(arena, body, path, &id) {
-            map.insert("entities".into(), Value::Array(entities));
-        }
+    // The Ruby builder always passes interfaces: [] (schema_decl_builder)
+    // and Schema#interfaced_items calls interfaces.flat_map directly, so
+    // the key must hydrate to a collection, never nil. Real interfaces
+    // replace the empty default below.
+    map.insert("interfaces".into(), Value::Array(Vec::new()));
+
+    if let Some(body) = hash_get(arena, decl, "schemaBody").as_ref() {
+        put_list(
+            &mut map,
+            "interfaces",
+            declarations::interfaces_json(arena, body),
+        );
+        put_list(
+            &mut map,
+            "constants",
+            declarations::constants_json(arena, body),
+        );
+        let mut decls = declarations::Declarations::default();
+        declarations::schema_declarations(arena, body, &mut decls);
+        declarations::apply(&mut map, &decls);
     }
 
     Ok(Value::Object(map))
 }
 
-fn entities_json(
-    arena: &AstArena,
-    body: &AstNode,
-    path: &str,
-    schema_id: &str,
-) -> Option<Vec<Value>> {
-    let mut entities = Vec::new();
-
-    // Entities arrive inside schemaBodyDeclaration wrappers, nested one
-    // level deeper under "declaration" — the same layout extract_body
-    // walks for the declaration dispatch.
-    if let Some(declarations) = hash_get(arena, body, "schemaBodyDeclaration") {
-        for wrapped in as_list(arena, &declarations) {
-            let Some(outer) = hash_get(arena, &wrapped, "schemaBodyDeclaration") else {
-                continue;
-            };
-            let Some(declaration) = hash_get(arena, &outer, "declaration") else {
-                continue;
-            };
-            if let Some(inner) = hash_get(arena, &declaration, "entityDecl") {
-                entities.push(entity_json(arena, &inner, path, schema_id));
-            }
-        }
-    }
-
-    if entities.is_empty() {
-        None
-    } else {
-        Some(entities)
-    }
-}
-
-fn entity_json(arena: &AstArena, node: &AstNode, path: &str, schema_id: &str) -> Value {
-    let id = hash_get(arena, node, "entityHead")
-        .and_then(|head| rule_id_str_opt(arena, hash_get(arena, &head, "entityId").as_ref()))
+/// schemaVersionId → SchemaVersion{value, items}: a `{...}` version
+/// string is split into SchemaVersionItems exactly like
+/// SchemaVersionBuilder (`name(value)`, bare numbers, bare names).
+fn version_json(arena: &AstArena, v: &AstNode) -> Value {
+    let value = hash_get(arena, v, "stringLiteral")
+        .and_then(|l| hash_get(arena, &l, "simpleStringLiteral"))
+        .and_then(|s| hash_get(arena, &s, "str"))
+        .and_then(|n| text(arena, &n))
+        .map(unquote)
         .unwrap_or_default();
 
-    let mut map = Map::new();
-    map.insert("_class".into(), Value::String(CLASS_ENTITY.into()));
-    map.insert("id".into(), Value::String(id.clone()));
+    let mut map = node(CLASS_SCHEMA_VERSION);
+    map.insert("value".into(), Value::String(value.clone()));
 
-    let subtype_of = hash_get(arena, node, "entityHead")
-        .and_then(|head| hash_get(arena, &head, "subsuper"))
-        .and_then(|s| hash_get(arena, &s, "subtypeDeclaration"))
-        .and_then(|d| hash_get(arena, &d, "listOf_entityRef"))
-        .map(|list| subtype_refs_json(arena, &list, path, schema_id));
-    if let Some(refs) = subtype_of {
-        map.insert("subtype_of".into(), Value::Array(refs));
+    if value.starts_with('{') && value.ends_with('}') {
+        let items = value[1..value.len() - 1]
+            .split_whitespace()
+            .map(|part| {
+                let mut item = node(CLASS_SCHEMA_VERSION_ITEM);
+                match part
+                    .rsplit_once('(')
+                    .filter(|(_, tail)| tail.ends_with(')'))
+                {
+                    Some((name, tail)) => {
+                        item.insert("name".into(), Value::String(name.to_string()));
+                        item.insert(
+                            "value".into(),
+                            Value::String(tail.trim_end_matches(')').to_string()),
+                        );
+                    }
+                    None if part.chars().all(|c| c.is_ascii_digit()) => {
+                        item.insert("value".into(), Value::String(part.to_string()));
+                    }
+                    None => {
+                        item.insert("name".into(), Value::String(part.to_string()));
+                    }
+                }
+                Value::Object(item)
+            })
+            .collect::<Vec<_>>();
+        if !items.is_empty() {
+            map.insert("items".into(), Value::Array(items));
+        }
     }
 
     Value::Object(map)
 }
 
-fn subtype_refs_json(
-    arena: &AstArena,
-    list: &AstNode,
-    path: &str,
-    schema_id: &str,
-) -> Vec<Value> {
-    // base_path points at the REFERENCED item: parent chain of the
-    // declaring context + the reference id (Ruby builder semantics).
-    as_list(arena, list)
-        .into_iter()
-        .filter_map(|item| {
-            let entity_ref = hash_get(arena, &item, "entityRef")?;
-            let id = rule_id_str(arena, hash_get(arena, &entity_ref, "entityId").as_ref());
-            let base_path = format!("{path}.{schema_id}.{id}");
-            let mut reference = Map::new();
-            reference
-                .insert("_class".into(), Value::String(CLASS_SIMPLE_REFERENCE.into()));
-            reference.insert("id".into(), Value::String(id));
-            reference.insert("base_path".into(), Value::String(base_path));
-            Some(Value::Object(reference))
-        })
-        .collect()
+// ---------------------------------------------------------------------
+// Shared emission helpers
+// ---------------------------------------------------------------------
+
+pub(crate) fn node(class: &str) -> Map<String, Value> {
+    let mut m = Map::new();
+    m.insert("_class".into(), Value::String(class.into()));
+    m
 }
+
+pub(crate) fn obj(m: Map<String, Value>) -> Value {
+    Value::Object(m)
+}
+
+pub(crate) fn put(map: &mut Map<String, Value>, key: &str, value: Option<Value>) {
+    if let Some(v) = value {
+        map.insert(key.into(), v);
+    }
+}
+
+pub(crate) fn put_list(map: &mut Map<String, Value>, key: &str, items: Vec<Value>) {
+    if !items.is_empty() {
+        map.insert(key.into(), Value::Array(items));
+    }
+}
+
+/// Elements of a grammar repetition `key` under `host`.
+///
+/// Two shapes occur in the arena: `listOf_*` holder hashes carry the
+/// repeated key alongside their tokens (single occurrence collapses to
+/// the value, repetitions become arrays), while anonymous repetitions
+/// (`rhs`, `stmt`, `declaration`, …) arrive as arrays of single-key
+/// wrapper hashes. Both are normalized here.
+pub(crate) fn children_of(arena: &AstArena, host: &AstNode, key: &str) -> Vec<AstNode> {
+    let raw = match host {
+        AstNode::Array { .. } => as_list(arena, host),
+        // Holder form: the repeated key sits inside alongside tokens.
+        _ => match hash_get(arena, host, key) {
+            Some(v) => as_list(arena, &v),
+            // Collapsed form: a single occurrence merged into the host
+            // itself (e.g. constantBody, single listOf entries).
+            None => vec![host.clone()],
+        },
+    };
+    raw.into_iter().map(|w| unwrap_child(arena, &w, key)).collect()
+}
+
+/// Unwrap a repetition element: {wrapper: inner} → inner; already-raw
+/// nodes pass through.
+pub(crate) fn unwrap_child(arena: &AstArena, w: &AstNode, wrapper: &str) -> AstNode {
+    hash_get(arena, w, wrapper).unwrap_or_else(|| w.clone())
+}
+
+/// SimpleReference{id} — never emits base_path; the Ruby reference
+/// resolver owns that attribute.
+pub(crate) fn simple_ref(arena: &AstArena, host: &AstNode, id_keys: &[&str]) -> Option<Value> {
+    let id = ref_id(arena, host, id_keys)?;
+    let mut m = node(CLASS_SIMPLE_REFERENCE);
+    m.insert("id".into(), Value::String(id));
+    Some(obj(m))
+}
+
+/// extract_id_ref: text of the first present id key, else the first
+/// hash value's nested text (helpers.rb fallback).
+pub(crate) fn ref_id(arena: &AstArena, host: &AstNode, id_keys: &[&str]) -> Option<String> {
+    for key in id_keys {
+        if let Some(v) = hash_get(arena, host, key) {
+            if let Some(t) = nested_text(arena, &v) {
+                return Some(t);
+            }
+        }
+    }
+    hash_pairs(arena, host)
+        .first()
+        .and_then(|(_, v)| nested_text(arena, v))
+}
+
+/// The id keys every `*Ref` node is searched for, in helpers.rb order.
+pub(crate) const REF_ID_KEYS: &[&str] = &[
+    "functionId",
+    "constantId",
+    "parameterId",
+    "variableId",
+    "attributeId",
+    "entityId",
+    "typeId",
+    "procedureId",
+    "schemaId",
+    "typeLabelId",
+    "enumerationId",
+    "renameId",
+    "simpleId",
+];
+

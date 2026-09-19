@@ -3,7 +3,6 @@
 //!
 //! Usage: `cargo run --example model_json -- <file.exp> <relative.path> [out.json]`
 
-use std::io::Write as _;
 
 fn main() {
     let mut args = std::env::args().skip(1);
