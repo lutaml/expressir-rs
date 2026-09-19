@@ -62,7 +62,12 @@ pub(crate) fn underlying_type_json(arena: &AstArena, n: &AstNode) -> Option<Valu
 fn concrete_type_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     for (key, value) in hash_pairs(arena, n) {
         let v = (match key.as_str() {
-            "aggregateType" => Some(aggregate_type_json(arena, &value, CLASS_AGGREGATE, "parameterType")),
+            "aggregateType" => Some(aggregate_type_json(
+                arena,
+                &value,
+                CLASS_AGGREGATE,
+                "parameterType",
+            )),
             "arrayType" => Some(aggregation_type_json(arena, &value, CLASS_ARRAY)),
             "bagType" => Some(aggregation_type_json(arena, &value, CLASS_BAG)),
             "listType" => Some(aggregation_type_json(arena, &value, CLASS_LIST)),
@@ -86,7 +91,8 @@ fn concrete_type_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
             "typeRef" => simple_ref(arena, &value, REF_ID_KEYS),
             k if WRAPPERS.contains(&k) => concrete_type_json(arena, &value),
             _ => None,
-        }).map(|mut v| {
+        })
+        .map(|mut v| {
             attach_offset(arena, &value, &mut v);
             v
         });
@@ -161,8 +167,7 @@ fn general_aggregation_json(arena: &AstArena, n: &AstNode, class: &str) -> Value
     put(
         &mut m,
         "base_type",
-        hash_get(arena, n, "parameterType")
-            .and_then(|it| concrete_type_json(arena, &it)),
+        hash_get(arena, n, "parameterType").and_then(|it| concrete_type_json(arena, &it)),
     );
     obj(m)
 }
@@ -178,7 +183,9 @@ fn aggregate_type_json(arena: &AstArena, n: &AstNode, class: &str, inner_key: &s
 }
 
 fn put_bounds(arena: &AstArena, m: &mut serde_json::Map<String, Value>, n: &AstNode) {
-    let Some(spec) = hash_get(arena, n, "boundSpec") else { return };
+    let Some(spec) = hash_get(arena, n, "boundSpec") else {
+        return;
+    };
     put(
         m,
         "bound1",
@@ -207,8 +214,7 @@ fn enumeration_type_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     } else if let Some(ext) = hash_get(arena, n, "enumerationExtension") {
         (
             hash_get(arena, &ext, "enumerationItems"),
-            hash_get(arena, &ext, "typeRef")
-                .and_then(|t| simple_ref(arena, &t, REF_ID_KEYS)),
+            hash_get(arena, &ext, "typeRef").and_then(|t| simple_ref(arena, &t, REF_ID_KEYS)),
         )
     } else {
         (None, None)
@@ -254,8 +260,7 @@ fn select_type_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     } else if let Some(ext) = hash_get(arena, n, "selectExtension") {
         (
             hash_get(arena, &ext, "selectList"),
-            hash_get(arena, &ext, "typeRef")
-                .and_then(|t| simple_ref(arena, &t, REF_ID_KEYS)),
+            hash_get(arena, &ext, "typeRef").and_then(|t| simple_ref(arena, &t, REF_ID_KEYS)),
         )
     } else {
         (None, None)

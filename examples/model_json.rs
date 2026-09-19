@@ -3,10 +3,11 @@
 //!
 //! Usage: `cargo run --example model_json -- <file.exp> <relative.path> [out.json]`
 
-
 fn main() {
     let mut args = std::env::args().skip(1);
-    let file = args.next().expect("usage: model_json <file.exp> <rel.path> [out]");
+    let file = args
+        .next()
+        .expect("usage: model_json <file.exp> <rel.path> [out]");
     let rel_path = args.next().expect("relative path");
     let out_path = args.next();
 
