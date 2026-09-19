@@ -92,6 +92,39 @@ pub fn nested_text(arena: &AstArena, node: &AstNode) -> Option<String> {
     }
 }
 
+/// Mirror of Builder#find_slice: the offset of the first input slice
+/// under `node`, depth-first. A hash's `str` wins over its `spaces`;
+/// `spaces` keys are otherwise skipped. Depth-capped like the Ruby.
+pub fn first_slice_offset(arena: &AstArena, node: &AstNode, depth: usize) -> Option<u32> {
+    if depth > 10 {
+        return None;
+    }
+    match node {
+        AstNode::InputRef { offset, .. } => Some(*offset),
+        AstNode::Hash { .. } => {
+            if let Some(AstNode::InputRef { offset, .. }) = hash_get(arena, node, "str").as_ref() {
+                return Some(*offset);
+            }
+            for (key, value) in hash_pairs(arena, node) {
+                if key == "spaces" {
+                    continue;
+                }
+                if let AstNode::InputRef { offset, .. } = value {
+                    return Some(offset);
+                }
+                if let Some(found) = first_slice_offset(arena, &value, depth + 1) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        AstNode::Array { .. } => as_list(arena, node)
+            .into_iter()
+            .find_map(|v| first_slice_offset(arena, &v, depth + 1)),
+        _ => None,
+    }
+}
+
 /// Recursively yield every hash node reachable from `node`, including
 /// `node` itself when it is a hash.
 pub fn self_and_descendant_hashes<'a>(

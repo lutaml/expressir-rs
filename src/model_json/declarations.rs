@@ -11,9 +11,9 @@ use parsanol::portable::{AstArena, AstNode};
 use crate::walk::{as_list, hash_get, hash_pairs, nested_text};
 
 use super::data_types::{instantiable_type_json, parameter_type_json, underlying_type_json};
-use super::expressions::{expression_json, qualified_attribute_json, supertype_expression_json};
+use super::expressions::{expression_value, qualified_attribute_json, supertype_expression_json};
 use super::statements::stmts_json;
-use super::{children_of, node, obj, put, put_list, simple_ref, unwrap_child, REF_ID_KEYS};
+use super::{attach_offset, children_of, node, obj, put, put_list, simple_ref, unwrap_child, REF_ID_KEYS};
 
 const CLASS_ENTITY: &str = "Expressir::Model::Declarations::Entity";
 const CLASS_TYPE: &str = "Expressir::Model::Declarations::Type";
@@ -72,16 +72,28 @@ pub(crate) fn schema_declarations(arena: &AstArena, body: &AstNode, decls: &mut 
 
 fn dispatch_declaration(arena: &AstArena, declaration: &AstNode, decls: &mut Declarations) {
     for (key, value) in hash_pairs(arena, declaration) {
-        match key.as_str() {
-            "entityDecl" => decls.entities.push(entity_json(arena, &value)),
-            "typeDecl" => decls.types.push(type_decl_json(arena, &value)),
-            "functionDecl" => decls.functions.push(function_json(arena, &value)),
-            "procedureDecl" => decls.procedures.push(procedure_json(arena, &value)),
-            "ruleDecl" => decls.rules.push(rule_json(arena, &value)),
-            "subtypeConstraintDecl" => decls
-                .subtype_constraints
-                .push(subtype_constraint_decl_json(arena, &value)),
-            _ => {}
+        let mut built = match key.as_str() {
+            "entityDecl" => Some(entity_json(arena, &value)),
+            "typeDecl" => Some(type_decl_json(arena, &value)),
+            "functionDecl" => Some(function_json(arena, &value)),
+            "procedureDecl" => Some(procedure_json(arena, &value)),
+            "ruleDecl" => Some(rule_json(arena, &value)),
+            "subtypeConstraintDecl" => Some(subtype_constraint_decl_json(arena, &value)),
+            _ => None,
+        };
+        if let Some(v) = built.as_mut() {
+            attach_offset(arena, &value, v);
+            match key.as_str() {
+                "entityDecl" => decls.entities.push(built.take().expect("built")),
+                "typeDecl" => decls.types.push(built.take().expect("built")),
+                "functionDecl" => decls.functions.push(built.take().expect("built")),
+                "procedureDecl" => decls.procedures.push(built.take().expect("built")),
+                "ruleDecl" => decls.rules.push(built.take().expect("built")),
+                "subtypeConstraintDecl" => {
+                    decls.subtype_constraints.push(built.take().expect("built"))
+                }
+                _ => {}
+            }
         }
     }
 }
@@ -105,11 +117,10 @@ pub(crate) fn interfaces_json(arena: &AstArena, body: &AstNode) -> Vec<Value> {
             };
             let mut m = node(super::CLASS_INTERFACE);
             m.insert("kind".into(), Value::String(kind.into()));
-            m.insert(
-                "schema".into(),
-                hash_get(arena, &clause, "schemaRef")
-                    .and_then(|sr| simple_ref(arena, &sr, REF_ID_KEYS))?,
-            );
+            let mut schema = hash_get(arena, &clause, "schemaRef")
+                .and_then(|sr| simple_ref(arena, &sr, REF_ID_KEYS))?;
+            attach_offset(arena, &hash_get(arena, &clause, "schemaRef")?, &mut schema);
+            m.insert("schema".into(), schema);
             let list_key = if kind == "REFERENCE" {
                 "listOf_resourceOrRename"
             } else {
@@ -126,7 +137,9 @@ pub(crate) fn interfaces_json(arena: &AstArena, body: &AstNode) -> Vec<Value> {
                 "items".into(),
                 Value::Array(interface_items(arena, &clause, list_key, item_key, kind)),
             );
-            Some(obj(m))
+            let mut v = obj(m);
+            attach_offset(arena, &spec, &mut v);
+            Some(v)
         })
         .collect()
 }
@@ -145,22 +158,32 @@ fn interface_items(
         .into_iter()
         .filter_map(|item| {
             let mut m = node(super::CLASS_INTERFACE_ITEM);
-            let r = if kind == "REFERENCE" {
-                hash_get(arena, &item, "resourceRef")
-                    .and_then(|rr| hash_pairs(arena, &rr).first().and_then(|(_, v)| {
-                        simple_ref(arena, v, REF_ID_KEYS)
-                    }))
+            let mut r = if kind == "REFERENCE" {
+                hash_get(arena, &item, "resourceRef").and_then(|rr| {
+                    let (k, v) = hash_pairs(arena, &rr).first().cloned()?;
+                    let mut r = simple_ref(arena, &v, REF_ID_KEYS)?;
+                    attach_offset(arena, &v, &mut r);
+                    if k == "entityRef" || k == "typeRef" {
+                        // named resource refs attach at the innermost rule
+                    }
+                    Some(r)
+                })
             } else {
-                hash_get(arena, &item, "namedTypes")
-                    .and_then(|nt| {
-                        if let Some(er) = hash_get(arena, &nt, "entityRef") {
-                            simple_ref(arena, &er, REF_ID_KEYS)
-                        } else {
-                            hash_get(arena, &nt, "typeRef")
-                                .and_then(|tr| simple_ref(arena, &tr, REF_ID_KEYS))
-                        }
-                    })
+                hash_get(arena, &item, "namedTypes").and_then(|nt| {
+                    let inner = hash_get(arena, &nt, "entityRef")
+                        .map(|er| (er, "entityRef"))
+                        .or_else(|| {
+                            hash_get(arena, &nt, "typeRef").map(|tr| (tr, "typeRef"))
+                        })?;
+                    let (node_val, _) = inner;
+                    let mut r = simple_ref(arena, &node_val, REF_ID_KEYS)?;
+                    attach_offset(arena, &node_val, &mut r);
+                    Some(r)
+                })
             };
+            if let Some(r) = r.as_mut() {
+                let _ = r;
+            }
             put(&mut m, "ref", r);
             // renameId carries its own id kind (entityId/typeId/…); the
             // item id hydrates as a plain string.
@@ -177,7 +200,9 @@ fn interface_items(
                         .map(Value::String),
                 );
             }
-            Some(obj(m))
+            let mut v = obj(m);
+            attach_offset(arena, &item, &mut v);
+            Some(v)
         })
         .collect()
 }
@@ -215,9 +240,11 @@ fn constant_body_json(arena: &AstArena, decl: &AstNode) -> Vec<Value> {
                 &mut m,
                 "expression",
                 hash_get(arena, &body, "expression")
-                    .and_then(|e| expression_json(arena, &e)),
+                    .and_then(|e| expression_value(arena, &e)),
             );
-            Some(obj(m))
+            let mut v = obj(m);
+            attach_offset(arena, &body, &mut v);
+            Some(v)
         })
         .collect()
 }
@@ -267,7 +294,7 @@ fn local_variables_json(arena: &AstArena, decl: &AstNode) -> Vec<Value> {
             let ty = hash_get(arena, &var, "parameterType")
                 .and_then(|pt| parameter_type_json(arena, &pt));
             let expr = hash_get(arena, &var, "expression")
-                .and_then(|e| expression_json(arena, &e));
+                .and_then(|e| expression_value(arena, &e));
             ids.into_iter().map(move |id| {
                 let mut m = node(CLASS_VARIABLE);
                 m.insert("id".into(), Value::String(id));
@@ -377,18 +404,30 @@ fn put_supersuper(arena: &AstArena, m: &mut Map<String, Value>, subsuper: &AstNo
         if let Some(rule) = hash_get(arena, &constraint, "supertypeRule") {
             supertype_expression = hash_get(arena, &rule, "subtypeConstraint")
                 .and_then(|sc| hash_get(arena, &sc, "supertypeExpression"))
-                .and_then(|se| supertype_expression_json(arena, &se));
+                .and_then(|se| {
+                    supertype_expression_json(arena, &se).map(|mut se_v| {
+                        attach_offset(arena, &se, &mut se_v);
+                        se_v
+                    })
+                });
         } else if let Some(decl) = abstract_supertype {
             if let Some(constraint) = hash_get(arena, &decl, "subtypeConstraint") {
                 supertype_expression = if let Some(se) =
                     hash_get(arena, &constraint, "supertypeExpression")
                 {
-                    supertype_expression_json(arena, &se)
+                    supertype_expression_json(arena, &se).map(|mut se_v| {
+                        attach_offset(arena, &se, &mut se_v);
+                        se_v
+                    })
                 } else if let Some(list) = hash_get(arena, &constraint, "listOf_entityRef") {
                     // A single ref collapses to the ref itself.
                     let refs: Vec<Value> = children_of(arena, &list, "entityRef")
                         .into_iter()
-                        .filter_map(|er| simple_ref(arena, &er, REF_ID_KEYS))
+                        .filter_map(|er| {
+                            let mut r = simple_ref(arena, &er, REF_ID_KEYS)?;
+                            attach_offset(arena, &er, &mut r);
+                            Some(r)
+                        })
                         .collect();
                     refs.first().cloned()
                 } else {
@@ -441,8 +480,12 @@ fn explicit_attrs_json(arena: &AstArena, group: &AstNode) -> Vec<Value> {
         let mut m = node(CLASS_ATTRIBUTE);
         m.insert("kind".into(), Value::String("EXPLICIT".into()));
         let supertype_attribute = hash_get(arena, &decl, "redeclaredAttribute").and_then(|re| {
-            hash_get(arena, &re, "qualifiedAttribute")
-                .and_then(|qa| qualified_attribute_json(arena, &qa))
+            hash_get(arena, &re, "qualifiedAttribute").and_then(|qa| {
+                qualified_attribute_json(arena, &qa).map(|mut qa_v| {
+                    attach_offset(arena, &qa, &mut qa_v);
+                    qa_v
+                })
+            })
         });
         let id = redeclared_id(arena, &decl, &supertype_attribute);
         put(&mut m, "id", id.map(Value::String));
@@ -451,7 +494,9 @@ fn explicit_attrs_json(arena: &AstArena, group: &AstNode) -> Vec<Value> {
             m.insert("optional".into(), Value::Bool(true));
         }
         put(&mut m, "type", ty.clone());
-        out.push(obj(m));
+        let mut v = obj(m);
+        attach_offset(arena, &decl, &mut v);
+        out.push(v);
     }
     out
 }
@@ -484,8 +529,12 @@ fn derived_attr_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     m.insert("kind".into(), Value::String("DERIVED".into()));
     let decl = hash_get(arena, n, "attributeDecl")?;
     let supertype_attribute = hash_get(arena, &decl, "redeclaredAttribute").and_then(|re| {
-        hash_get(arena, &re, "qualifiedAttribute")
-            .and_then(|qa| qualified_attribute_json(arena, &qa))
+        hash_get(arena, &re, "qualifiedAttribute").and_then(|qa| {
+            qualified_attribute_json(arena, &qa).map(|mut qa_v| {
+                attach_offset(arena, &qa, &mut qa_v);
+                qa_v
+            })
+        })
     });
     let id = redeclared_id(arena, &decl, &supertype_attribute);
     put(&mut m, "id", id.map(Value::String));
@@ -500,9 +549,11 @@ fn derived_attr_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
         &mut m,
         "expression",
         hash_get(arena, n, "expression")
-            .and_then(|e| expression_json(arena, &e)),
+            .and_then(|e| expression_value(arena, &e)),
     );
-    Some(obj(m))
+    let mut v = obj(m);
+    attach_offset(arena, n, &mut v);
+    Some(v)
 }
 
 fn inverse_attr_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
@@ -527,7 +578,9 @@ fn inverse_attr_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
         "expression",
         inverse_expression_json(arena, n),
     );
-    Some(obj(m))
+    let mut v = obj(m);
+    attach_offset(arena, n, &mut v);
+    Some(v)
 }
 
 /// inverseAttrType: SET/BAG [bounds] OF entity | bare entity ref.
@@ -549,14 +602,14 @@ fn inverse_attr_type_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
                 "bound1",
                 hash_get(arena, &spec, "bound1")
                     .and_then(|b| hash_get(arena, &b, "numericExpression"))
-                    .and_then(|ne| expression_json(arena, &ne)),
+                    .and_then(|ne| expression_value(arena, &ne)),
             );
             put(
                 &mut m,
                 "bound2",
                 hash_get(arena, &spec, "bound2")
                     .and_then(|b| hash_get(arena, &b, "numericExpression"))
-                    .and_then(|ne| expression_json(arena, &ne)),
+                    .and_then(|ne| expression_value(arena, &ne)),
             );
         }
     }
@@ -567,16 +620,23 @@ fn inverse_attr_type_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
 /// inverse expression: `SET OF (entity.attr)` | `attr`.
 fn inverse_expression_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     if let Some(er) = hash_get(arena, n, "entityRef") {
-        let r = simple_ref(arena, &er, REF_ID_KEYS)?;
-        let attr = hash_get(arena, n, "attributeRef")
-            .and_then(|ar| simple_ref(arena, &ar, REF_ID_KEYS));
+        let mut r = simple_ref(arena, &er, REF_ID_KEYS)?;
+        attach_offset(arena, &er, &mut r);
+        let attr = hash_get(arena, n, "attributeRef").and_then(|ar| {
+            let mut a = simple_ref(arena, &ar, REF_ID_KEYS)?;
+            attach_offset(arena, &ar, &mut a);
+            Some(a)
+        });
         let mut m = node("Expressir::Model::References::AttributeReference");
         m.insert("ref".into(), r);
         m.insert("attribute".into(), attr?);
         return Some(obj(m));
     }
-    hash_get(arena, n, "attributeRef")
-        .and_then(|ar| simple_ref(arena, &ar, REF_ID_KEYS))
+    hash_get(arena, n, "attributeRef").and_then(|ar| {
+        let mut a = simple_ref(arena, &ar, REF_ID_KEYS)?;
+        attach_offset(arena, &ar, &mut a);
+        Some(a)
+    })
 }
 
 fn where_rules_json(arena: &AstArena, host: &AstNode) -> Vec<Value> {
@@ -588,9 +648,13 @@ fn where_rules_json(arena: &AstArena, host: &AstNode) -> Vec<Value> {
     let Some(list) = list else {
         return Vec::new();
     };
-    children_of(arena, &list, "domainRule")
+    as_list(arena, &list)
         .into_iter()
-        .filter_map(|inner| {
+        .filter_map(|raw| {
+            // The Ruby dispatch attaches with the raw wrapper element —
+            // with the depth-capped find_slice that can resolve to the
+            // trailing op_delim rather than the expression.
+            let inner = unwrap_child(arena, &raw, "domainRule");
             let mut m = node(CLASS_WHERE_RULE);
             let id = hash_get(arena, &inner, "ruleLabelId")
                 .and_then(|r| nested_text(arena, &r));
@@ -599,9 +663,11 @@ fn where_rules_json(arena: &AstArena, host: &AstNode) -> Vec<Value> {
                 &mut m,
                 "expression",
                 hash_get(arena, &inner, "expression")
-                    .and_then(|e| expression_json(arena, &e)),
+                    .and_then(|e| expression_value(arena, &e)),
             );
-            Some(obj(m))
+            let mut v = obj(m);
+            attach_offset(arena, &raw, &mut v);
+            Some(v)
         })
         .collect()
 }
@@ -615,9 +681,10 @@ fn unique_rules_json(arena: &AstArena, host: &AstNode) -> Vec<Value> {
     let Some(list) = list else {
         return Vec::new();
     };
-    children_of(arena, &list, "uniqueRule")
+    as_list(arena, &list)
         .into_iter()
-        .filter_map(|inner| {
+        .filter_map(|raw| {
+            let inner = unwrap_child(arena, &raw, "uniqueRule");
             let mut m = node(CLASS_UNIQUE_RULE);
             let id = hash_get(arena, &inner, "ruleLabelId")
                 .and_then(|r| nested_text(arena, &r));
@@ -626,19 +693,21 @@ fn unique_rules_json(arena: &AstArena, host: &AstNode) -> Vec<Value> {
             if let Some(list) = hash_get(arena, &inner, "listOf_referencedAttribute") {
                 for attr in children_of(arena, &list, "referencedAttribute") {
                     let r = if let Some(ar) = hash_get(arena, &attr, "attributeRef") {
-                        simple_ref(arena, &ar, REF_ID_KEYS)
+                        let mut r = simple_ref(arena, &ar, REF_ID_KEYS)?;
+                        attach_offset(arena, &ar, &mut r);
+                        Some(r)
                     } else if let Some(qa) = hash_get(arena, &attr, "qualifiedAttribute") {
                         qualified_attribute_json(arena, &qa)
                     } else {
-                        continue;
-                    };
-                    if let Some(r) = r {
-                        attributes.push(r);
-                    }
+                        None
+                    }?;
+                    attributes.push(r);
                 }
             }
             put_list(&mut m, "attributes", attributes);
-            Some(obj(m))
+            let mut v = obj(m);
+            attach_offset(arena, &raw, &mut v);
+            Some(v)
         })
         .collect()
 }
@@ -731,7 +800,11 @@ fn rule_json(arena: &AstArena, n: &AstNode) -> Value {
         if let Some(list) = hash_get(arena, head, "listOf_entityRef") {
             applies_to = children_of(arena, &list, "entityRef")
                 .into_iter()
-                .filter_map(|er| simple_ref(arena, &er, REF_ID_KEYS))
+                .filter_map(|er| {
+                    let mut r = simple_ref(arena, &er, REF_ID_KEYS)?;
+                    attach_offset(arena, &er, &mut r);
+                    Some(r)
+                })
                 .collect();
         }
         put_list(&mut m, "applies_to", applies_to);
@@ -756,8 +829,11 @@ fn subtype_constraint_decl_json(arena: &AstArena, n: &AstNode) -> Value {
         put(
             &mut m,
             "applies_to",
-            hash_get(arena, head, "entityRef")
-                .and_then(|er| simple_ref(arena, &er, REF_ID_KEYS)),
+            hash_get(arena, head, "entityRef").and_then(|er| {
+                let mut r = simple_ref(arena, &er, REF_ID_KEYS)?;
+                attach_offset(arena, &er, &mut r);
+                Some(r)
+            }),
         );
     }
     if let Some(body) = hash_get(arena, n, "subtypeConstraintBody") {
@@ -772,7 +848,11 @@ fn subtype_constraint_decl_json(arena: &AstArena, n: &AstNode) -> Value {
             let refs = match hash_get(arena, &total, "entityRef") {
                 Some(list) => as_list(arena, &list)
                     .into_iter()
-                    .filter_map(|er| simple_ref(arena, &er, REF_ID_KEYS))
+                    .filter_map(|er| {
+                        let mut r = simple_ref(arena, &er, REF_ID_KEYS)?;
+                        attach_offset(arena, &er, &mut r);
+                        Some(r)
+                    })
                     .collect::<Vec<_>>(),
                 None => Vec::new(),
             };
@@ -781,8 +861,11 @@ fn subtype_constraint_decl_json(arena: &AstArena, n: &AstNode) -> Value {
         put(
             &mut m,
             "supertype_expression",
-            hash_get(arena, &body, "supertypeExpression")
-                .and_then(|se| supertype_expression_json(arena, &se)),
+            hash_get(arena, &body, "supertypeExpression").and_then(|se| {
+                let mut v = supertype_expression_json(arena, &se)?;
+                attach_offset(arena, &se, &mut v);
+                Some(v)
+            }),
         );
     }
     obj(m)

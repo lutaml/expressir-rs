@@ -6,8 +6,8 @@ use parsanol::portable::{AstArena, AstNode};
 
 use crate::walk::{hash_get, hash_pairs, nested_text};
 
-use super::expressions::{actual_parameters_json, apply_qualifiers, build, expression_json};
-use super::{children_of, node, obj, put, put_list, simple_ref, CLASS_SIMPLE_REFERENCE, REF_ID_KEYS};
+use super::expressions::{actual_parameters_json, apply_qualifiers, build, expression_value};
+use super::{attach_offset, children_of, node, obj, put, put_list, simple_ref, CLASS_SIMPLE_REFERENCE, REF_ID_KEYS};
 
 const CLASS_ALIAS: &str = "Expressir::Model::Statements::Alias";
 const CLASS_ASSIGNMENT: &str = "Expressir::Model::Statements::Assignment";
@@ -25,7 +25,7 @@ const CLASS_SKIP: &str = "Expressir::Model::Statements::Skip";
 /// stmt dispatch over the first present statement alternative.
 pub(crate) fn stmt_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     for (key, value) in hash_pairs(arena, n) {
-        let v = match key.as_str() {
+        let v: Option<Value> = (match key.as_str() {
             "assignmentStmt" => assignment_json(arena, &value),
             "aliasStmt" => alias_json(arena, &value),
             "ifStmt" => if_json(arena, &value),
@@ -38,7 +38,10 @@ pub(crate) fn stmt_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
             "nullStmt" => Some(obj(node(CLASS_NULL))),
             "procedureCallStmt" => procedure_call_json(arena, &value),
             _ => None,
-        };
+        }).map(|mut v| {
+            attach_offset(arena, &value, &mut v);
+            v
+        });
         if v.is_some() {
             return v;
         }
@@ -77,7 +80,7 @@ fn assignment_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     put(
         &mut m,
         "expression",
-        hash_get(arena, n, "expression").and_then(|e| expression_json(arena, &e)),
+        hash_get(arena, n, "expression").and_then(|e| expression_value(arena, &e)),
     );
     Some(obj(m))
 }
@@ -128,7 +131,7 @@ fn case_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
         "expression".into(),
         hash_get(arena, n, "selector")
             .and_then(|s| hash_get(arena, &s, "expression"))
-            .and_then(|e| expression_json(arena, &e))?,
+            .and_then(|e| expression_value(arena, &e))?,
     );
     m.insert("actions".into(), Value::Array(case_actions_json(arena, n)));
     if hash_get(arena, n, "tOTHERWISE").is_some() {
@@ -153,7 +156,7 @@ fn case_actions_json(arena: &AstArena, n: &AstNode) -> Vec<Value> {
             if let Some(list) = hash_get(arena, &action, "listOf_caseLabel") {
                 for label in children_of(arena, &list, "caseLabel") {
                     if let Some(l) = hash_get(arena, &label, "expression")
-                        .and_then(|e| expression_json(arena, &e))
+                        .and_then(|e| expression_value(arena, &e))
                     {
                         labels.push(l);
                     }
@@ -192,21 +195,21 @@ fn repeat_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
                 "bound1",
                 hash_get(arena, &inc, "bound1")
                     .and_then(|b| hash_get(arena, &b, "numericExpression"))
-                    .and_then(|ne| expression_json(arena, &ne)),
+                    .and_then(|ne| expression_value(arena, &ne)),
             );
             put(
                 &mut m,
                 "bound2",
                 hash_get(arena, &inc, "bound2")
                     .and_then(|b| hash_get(arena, &b, "numericExpression"))
-                    .and_then(|ne| expression_json(arena, &ne)),
+                    .and_then(|ne| expression_value(arena, &ne)),
             );
             put(
                 &mut m,
                 "increment",
                 hash_get(arena, &inc, "increment")
                     .and_then(|i| hash_get(arena, &i, "numericExpression"))
-                    .and_then(|ne| expression_json(arena, &ne)),
+                    .and_then(|ne| expression_value(arena, &ne)),
             );
         }
         put(
@@ -233,7 +236,7 @@ fn return_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     put(
         &mut m,
         "expression",
-        hash_get(arena, n, "expression").and_then(|e| expression_json(arena, &e)),
+        hash_get(arena, n, "expression").and_then(|e| expression_value(arena, &e)),
     );
     Some(obj(m))
 }

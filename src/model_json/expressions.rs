@@ -9,7 +9,7 @@ use parsanol::portable::{AstArena, AstNode};
 
 use crate::walk::{hash_get, hash_pairs, nested_text};
 
-use super::{children_of, node, obj, put, simple_ref, CLASS_SIMPLE_REFERENCE, REF_ID_KEYS};
+use super::{attach_offset, children_of, node, obj, put, simple_ref, CLASS_SIMPLE_REFERENCE, REF_ID_KEYS};
 
 pub(crate) const CLASS_BINARY_EXPRESSION: &str = "Expressir::Model::Expressions::BinaryExpression";
 pub(crate) const CLASS_UNARY_EXPRESSION: &str = "Expressir::Model::Expressions::UnaryExpression";
@@ -34,7 +34,8 @@ pub(crate) fn build(arena: &AstArena, n: &AstNode) -> Option<Value> {
     match n {
         AstNode::Hash { .. } => {
             for (key, value) in hash_pairs(arena, n) {
-                if let Some(v) = build_key(arena, &key, &value) {
+                if let Some(mut v) = build_key(arena, &key, &value) {
+                    attach_offset(arena, &value, &mut v);
                     return Some(v);
                 }
             }
@@ -42,6 +43,15 @@ pub(crate) fn build(arena: &AstArena, n: &AstNode) -> Option<Value> {
         }
         _ => None,
     }
+}
+
+/// Builder.build({expression: e}) equivalent: expression_json plus the
+/// source-offset stamp the Ruby dispatch attaches with the expression
+/// subtree.
+pub(crate) fn expression_value(arena: &AstArena, e: &AstNode) -> Option<Value> {
+    let mut v = expression_json(arena, e)?;
+    attach_offset(arena, e, &mut v);
+    Some(v)
 }
 
 /// The registry dispatch for one node name; `value` is the node as it
