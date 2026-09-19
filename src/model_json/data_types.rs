@@ -8,8 +8,8 @@ use parsanol::portable::{AstArena, AstNode};
 
 use crate::walk::{hash_get, hash_pairs, nested_text};
 
-use super::expressions::{expression_json, simple_expression_json};
-use super::{children_of, node, obj, put, simple_ref, REF_ID_KEYS};
+use super::expressions::expression_value;
+use super::{attach_offset, children_of, node, obj, put, simple_ref, REF_ID_KEYS};
 
 const CLASS_AGGREGATE: &str = "Expressir::Model::DataTypes::Aggregate";
 const CLASS_ARRAY: &str = "Expressir::Model::DataTypes::Array";
@@ -61,7 +61,7 @@ pub(crate) fn underlying_type_json(arena: &AstArena, n: &AstNode) -> Option<Valu
 
 fn concrete_type_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     for (key, value) in hash_pairs(arena, n) {
-        let v = match key.as_str() {
+        let v = (match key.as_str() {
             "aggregateType" => Some(aggregate_type_json(arena, &value, CLASS_AGGREGATE, "parameterType")),
             "arrayType" => Some(aggregation_type_json(arena, &value, CLASS_ARRAY)),
             "bagType" => Some(aggregation_type_json(arena, &value, CLASS_BAG)),
@@ -86,7 +86,10 @@ fn concrete_type_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
             "typeRef" => simple_ref(arena, &value, REF_ID_KEYS),
             k if WRAPPERS.contains(&k) => concrete_type_json(arena, &value),
             _ => None,
-        };
+        }).map(|mut v| {
+            attach_offset(arena, &value, &mut v);
+            v
+        });
         if v.is_some() {
             return v;
         }
@@ -103,7 +106,7 @@ fn width_type_json(arena: &AstArena, n: &AstNode, class: &str) -> Value {
             "width",
             hash_get(arena, &spec, "width")
                 .and_then(|w| hash_get(arena, &w, "numericExpression"))
-                .and_then(|ne| expression_json(arena, &ne)),
+                .and_then(|ne| expression_value(arena, &ne)),
         );
         if hash_get(arena, &spec, "tFIXED").is_some() {
             m.insert("fixed".into(), Value::Bool(true));
@@ -120,13 +123,9 @@ fn real_type_json(arena: &AstArena, n: &AstNode) -> Value {
         "precision",
         hash_get(arena, n, "precisionSpec")
             .and_then(|ps| hash_get(arena, &ps, "numericExpression"))
-            .and_then(|ne| build_ne(arena, &ne)),
+            .and_then(|ne| expression_value(arena, &ne)),
     );
     obj(m)
-}
-
-fn build_ne(arena: &AstArena, ne: &AstNode) -> Option<Value> {
-    hash_get(arena, ne, "simpleExpression").and_then(|se| simple_expression_json(arena, &se))
 }
 
 /// LIST/SET/BAG/ARRAY [bounds] OF …, with OPTIONAL/UNIQUE flags.
@@ -185,14 +184,14 @@ fn put_bounds(arena: &AstArena, m: &mut serde_json::Map<String, Value>, n: &AstN
         "bound1",
         hash_get(arena, &spec, "bound1")
             .and_then(|b| hash_get(arena, &b, "numericExpression"))
-            .and_then(|ne| expression_json(arena, &ne)),
+            .and_then(|ne| expression_value(arena, &ne)),
     );
     put(
         m,
         "bound2",
         hash_get(arena, &spec, "bound2")
             .and_then(|b| hash_get(arena, &b, "numericExpression"))
-            .and_then(|ne| expression_json(arena, &ne)),
+            .and_then(|ne| expression_value(arena, &ne)),
     );
 }
 
@@ -231,7 +230,9 @@ fn enumeration_type_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
                 .or_else(|| nested_text(arena, &item))?;
             let mut em = node(CLASS_ENUMERATION_ITEM);
             em.insert("id".into(), Value::String(id));
-            items.push(obj(em));
+            let mut ev = obj(em);
+            attach_offset(arena, &item, &mut ev);
+            items.push(ev);
         }
     }
     m.insert("items".into(), Value::Array(items));

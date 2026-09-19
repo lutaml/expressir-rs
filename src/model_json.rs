@@ -55,11 +55,18 @@ pub fn model_json(arena: &AstArena, root: &AstNode, path: &str) -> Result<Value,
             }
         }
     }
-
+    // syntax_builder's result is attached like every registry dispatch,
+    // so the ExpFile carries the syntax subtree's first-slice offset —
+    // NodePositionIndex needs it to route pre-schema remarks to the file
+    // (header transfer) instead of the schema.
     let mut root_map = node(CLASS_EXP_FILE);
     root_map.insert("path".into(), Value::String(path.into()));
     root_map.insert("schemas".into(), Value::Array(schemas));
-    Ok(Value::Object(root_map))
+    let mut root_value = Value::Object(root_map);
+    if let Some(syntax) = hash_get(arena, root, "syntax") {
+        attach_offset(arena, &syntax, &mut root_value);
+    }
+    Ok(root_value)
 }
 
 fn schema_json(arena: &AstArena, decl: &AstNode, path: &str) -> Result<Value, ModelJsonError> {
@@ -70,7 +77,9 @@ fn schema_json(arena: &AstArena, decl: &AstNode, path: &str) -> Result<Value, Mo
     map.insert("file".into(), Value::String(path.into()));
 
     if let Some(version) = hash_get(arena, decl, "schemaVersionId") {
-        map.insert("version".into(), version_json(arena, &version));
+        let mut v = version_json(arena, &version);
+        attach_offset(arena, &version, &mut v);
+        map.insert("version".into(), v);
     }
 
     // The Ruby builder always passes interfaces: [] (schema_decl_builder)
@@ -95,7 +104,9 @@ fn schema_json(arena: &AstArena, decl: &AstNode, path: &str) -> Result<Value, Mo
         declarations::apply(&mut map, &decls);
     }
 
-    Ok(Value::Object(map))
+    let mut v = Value::Object(map);
+    attach_offset(arena, decl, &mut v);
+    Ok(v)
 }
 
 /// schemaVersionId → SchemaVersion{value, items}: a `{...}` version
@@ -197,6 +208,16 @@ pub(crate) fn children_of(arena: &AstArena, host: &AstNode, key: &str) -> Vec<As
 /// nodes pass through.
 pub(crate) fn unwrap_child(arena: &AstArena, w: &AstNode, wrapper: &str) -> AstNode {
     hash_get(arena, w, wrapper).unwrap_or_else(|| w.clone())
+}
+
+/// Mirror of Builder#attach_source_info: stamp the subtree's first
+/// input-slice offset onto an emitted node (overwriting any inner
+/// stamp, exactly like the Ruby outermost attach).
+pub(crate) fn attach_offset(arena: &AstArena, subtree: &AstNode, value: &mut Value) {
+    let Value::Object(map) = value else { return };
+    if let Some(offset) = crate::walk::first_slice_offset(arena, subtree, 0) {
+        map.insert("source_offset".into(), Value::from(u64::from(offset)));
+    }
 }
 
 /// SimpleReference{id} — never emits base_path; the Ruby reference
