@@ -11,7 +11,9 @@ use parsanol::portable::{AstArena, Grammar, PortableParser};
 const EXPRESS_GRAMMAR_JSON: &str = include_str!("../assets/express-grammar.json");
 
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: stage_bench <file.exp>");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: stage_bench <file.exp>");
     let source = std::fs::read_to_string(&path).expect("read input");
     println!("{} ({} KB)", path, source.len() / 1024);
 

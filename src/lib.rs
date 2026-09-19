@@ -14,8 +14,8 @@ pub mod model_json;
 pub mod walk;
 
 pub use extract::extract_file;
-pub use model_json::model_json;
 pub use model::*;
+pub use model_json::model_json;
 
 use std::sync::OnceLock;
 

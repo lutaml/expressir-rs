@@ -91,7 +91,9 @@ fn dispatch_declaration(arena: &AstArena, declaration: &AstNode, schema: &mut Sc
     } else if let Some(node) = hash_get(arena, declaration, "ruleDecl") {
         schema.rules.push(extract_rule(arena, &node));
     } else if let Some(node) = hash_get(arena, declaration, "subtypeConstraintDecl") {
-        schema.subtype_constraints.push(extract_subtype_constraint(arena, &node));
+        schema
+            .subtype_constraints
+            .push(extract_subtype_constraint(arena, &node));
     } else if let Some(node) = hash_get(arena, declaration, "constantDecl") {
         extract_constant_decl(arena, &node, schema);
     }
@@ -184,11 +186,10 @@ fn redeclared_attribute_name(arena: &AstArena, redeclared: &AstNode) -> Option<S
         return Some(name);
     }
     let qualified = hash_get(arena, redeclared, "qualifiedAttribute")?;
-    let attr_ref = hash_get(arena, &qualified, "attributeRef")
-        .or_else(|| {
-            hash_get(arena, &qualified, "attributeQualifier")
-                .and_then(|q| hash_get(arena, &q, "attributeRef"))
-        })?;
+    let attr_ref = hash_get(arena, &qualified, "attributeRef").or_else(|| {
+        hash_get(arena, &qualified, "attributeQualifier")
+            .and_then(|q| hash_get(arena, &q, "attributeRef"))
+    })?;
     rule_id_str_opt(arena, hash_get(arena, &attr_ref, "attributeId").as_ref())
 }
 
@@ -204,10 +205,9 @@ fn collect_where_rules(arena: &AstArena, node: &AstNode) -> Vec<WhereRule> {
     if let Some(list) = hash_get(arena, where_clause, "listOf_domainRule") {
         for item in as_list(arena, &list) {
             if let Some(domain_rule) = hash_get(arena, &item, "domainRule") {
-                if let Some(label) = rule_id_str_opt(
-                    arena,
-                    hash_get(arena, &domain_rule, "ruleLabelId").as_ref(),
-                ) {
+                if let Some(label) =
+                    rule_id_str_opt(arena, hash_get(arena, &domain_rule, "ruleLabelId").as_ref())
+                {
                     rules.push(WhereRule { label });
                 }
             }

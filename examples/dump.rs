@@ -46,9 +46,7 @@ fn to_value(arena: &AstArena, node: &AstNode) -> Value {
 fn main() {
     let mut args = std::env::args().skip(1);
     let path = args.next().expect("usage: dump <file.exp> [out.json]");
-    let out_path = args
-        .next()
-        .unwrap_or_else(|| format!("{}.ast.json", path));
+    let out_path = args.next().unwrap_or_else(|| format!("{}.ast.json", path));
 
     let source = std::fs::read_to_string(&path).expect("read input");
     let tree = ParsedTree::parse(&source).expect("parse");

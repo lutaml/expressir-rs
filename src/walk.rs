@@ -21,7 +21,10 @@ pub fn hash_get(arena: &AstArena, node: &AstNode, key: &str) -> Option<AstNode> 
 
 /// Keys present in a hash node.
 pub fn hash_keys(arena: &AstArena, node: &AstNode) -> Vec<String> {
-    hash_pairs(arena, node).into_iter().map(|(k, _)| k).collect()
+    hash_pairs(arena, node)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect()
 }
 
 /// All key-value pairs of a hash node, in insertion order.

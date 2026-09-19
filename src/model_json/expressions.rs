@@ -9,7 +9,9 @@ use parsanol::portable::{AstArena, AstNode};
 
 use crate::walk::{hash_get, hash_pairs, nested_text};
 
-use super::{attach_offset, children_of, node, obj, put, simple_ref, CLASS_SIMPLE_REFERENCE, REF_ID_KEYS};
+use super::{
+    attach_offset, children_of, node, obj, put, simple_ref, CLASS_SIMPLE_REFERENCE, REF_ID_KEYS,
+};
 
 pub(crate) const CLASS_BINARY_EXPRESSION: &str = "Expressir::Model::Expressions::BinaryExpression";
 pub(crate) const CLASS_UNARY_EXPRESSION: &str = "Expressir::Model::Expressions::UnaryExpression";
@@ -59,22 +61,17 @@ pub(crate) fn expression_value(arena: &AstArena, e: &AstNode) -> Option<Value> {
 fn build_key(arena: &AstArena, key: &str, value: &AstNode) -> Option<Value> {
     match key {
         "expression" => expression_json(arena, value),
-        "logicalExpression" | "numericExpression" => {
-            hash_get(arena, value, "simpleExpression")
-                .and_then(|se| simple_expression_json(arena, &se))
-        }
+        "logicalExpression" | "numericExpression" => hash_get(arena, value, "simpleExpression")
+            .and_then(|se| simple_expression_json(arena, &se)),
         "simpleExpression" => simple_expression_json(arena, value),
         "term" => term_json(arena, value),
         "factor" => {
-            hash_get(arena, value, "simpleFactor")
-                .and_then(|sf| simple_factor_json(arena, &sf))
+            hash_get(arena, value, "simpleFactor").and_then(|sf| simple_factor_json(arena, &sf))
         }
         "simpleFactor" => simple_factor_json(arena, value),
         "primary" => primary_json(arena, value),
         "literal" => literal_json(arena, value),
-        "integerLiteral" | "realLiteral" | "binaryLiteral" => {
-            literal_value_json(arena, key, value)
-        }
+        "integerLiteral" | "realLiteral" | "binaryLiteral" => literal_value_json(arena, key, value),
         "logicalLiteral" => logical_literal_json(arena, value),
         "stringLiteral" => string_literal_json(arena, value),
         "builtInConstant" | "builtInFunction" | "builtInProcedure" => {
@@ -107,8 +104,7 @@ pub(crate) fn expression_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     let left = if let Some(se) = hash_get(arena, n, "simpleExpression") {
         simple_expression_json(arena, &se)
     } else if let Some(le) = hash_get(arena, n, "logicalExpression") {
-        hash_get(arena, &le, "simpleExpression")
-            .and_then(|se| simple_expression_json(arena, &se))
+        hash_get(arena, &le, "simpleExpression").and_then(|se| simple_expression_json(arena, &se))
     } else {
         None
     }?;
@@ -202,8 +198,7 @@ fn simple_factor_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
         if let Some(p) = hash_get(arena, &sfe, "primary") {
             return primary_json(arena, &p);
         }
-        return hash_get(arena, &sfe, "expression")
-            .and_then(|e| expression_json(arena, &e));
+        return hash_get(arena, &sfe, "expression").and_then(|e| expression_json(arena, &e));
     }
     if let Some(sfue) = hash_get(arena, n, "simpleFactorUnaryExpression") {
         return simple_factor_unary_json(arena, &sfue);
@@ -233,8 +228,7 @@ fn simple_factor_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
 }
 
 fn simple_factor_unary_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
-    let operator = hash_get(arena, n, "unaryOp")
-        .and_then(|op| op_string(arena, &op, UNARY_OPS));
+    let operator = hash_get(arena, n, "unaryOp").and_then(|op| op_string(arena, &op, UNARY_OPS));
     let operand = if let Some(sf) = hash_get(arena, n, "simpleFactor") {
         simple_factor_json(arena, &sf)
     } else if let Some(sfe) = hash_get(arena, n, "simpleFactorExpression") {
@@ -306,7 +300,9 @@ pub(crate) fn apply_qualifiers(
     base: Value,
     qualifiers: Option<AstNode>,
 ) -> Option<Value> {
-    let Some(qualifiers) = qualifiers else { return Some(base) };
+    let Some(qualifiers) = qualifiers else {
+        return Some(base);
+    };
     let mut result = base;
     for q in children_of(arena, &qualifiers, "qualifier") {
         if let Some(gq) = hash_get(arena, &q, "groupQualifier") {
@@ -332,8 +328,7 @@ pub(crate) fn apply_qualifiers(
             m.insert("ref".into(), result);
             m.insert(
                 "index1".into(),
-                hash_get(arena, &iq, "index1")
-                    .and_then(|i| index_json(arena, &i))?,
+                hash_get(arena, &iq, "index1").and_then(|i| index_json(arena, &i))?,
             );
             put(
                 &mut m,
@@ -367,8 +362,7 @@ fn function_call_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     let func = if let Some(bif) = hash_get(arena, n, "builtInFunction") {
         Some(keyword_ref_value(arena, &bif))
     } else {
-        hash_get(arena, n, "functionRef")
-            .and_then(|fr| simple_ref(arena, &fr, REF_ID_KEYS))
+        hash_get(arena, n, "functionRef").and_then(|fr| simple_ref(arena, &fr, REF_ID_KEYS))
     }?;
     let params = actual_parameters_json(arena, n);
     if params.is_empty() {
@@ -381,8 +375,8 @@ fn function_call_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
 }
 
 fn entity_constructor_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
-    let func = hash_get(arena, n, "entityRef")
-        .and_then(|er| simple_ref(arena, &er, REF_ID_KEYS))?;
+    let func =
+        hash_get(arena, n, "entityRef").and_then(|er| simple_ref(arena, &er, REF_ID_KEYS))?;
     let params = actual_parameters_json(arena, n);
     let mut m = node(CLASS_FUNCTION_CALL);
     m.insert("function".into(), func);
@@ -400,8 +394,8 @@ pub(crate) fn actual_parameters_json(arena: &AstArena, n: &AstNode) -> Vec<Value
     let mut out = Vec::new();
     for param in children_of(arena, &list, "listOf_parameter") {
         for param in children_of(arena, &param, "parameter") {
-            if let Some(expr) = hash_get(arena, &param, "expression")
-                .and_then(|e| expression_json(arena, &e))
+            if let Some(expr) =
+                hash_get(arena, &param, "expression").and_then(|e| expression_json(arena, &e))
             {
                 out.push(expr);
             }
@@ -415,7 +409,8 @@ fn query_expression_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     put(
         &mut m,
         "id",
-        hash_get(arena, n, "variableId").and_then(|v| nested_text(arena, &v))
+        hash_get(arena, n, "variableId")
+            .and_then(|v| nested_text(arena, &v))
             .map(Value::String),
     );
     put(
@@ -429,8 +424,7 @@ fn query_expression_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     // or {simpleExpression: …}) — Builder.build_optional semantics.
     m.insert(
         "expression".into(),
-        hash_get(arena, n, "logicalExpression")
-            .and_then(|le| build(arena, &le))?,
+        hash_get(arena, n, "logicalExpression").and_then(|le| build(arena, &le))?,
     );
     Some(obj(m))
 }
@@ -486,7 +480,10 @@ fn interval_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     m.insert("low".into(), simple("intervalLow")?);
     m.insert(
         "operator1".into(),
-        Value::String(interval_op_string(arena, &hash_get(arena, n, "intervalOp")?)?),
+        Value::String(interval_op_string(
+            arena,
+            &hash_get(arena, n, "intervalOp")?,
+        )?),
     );
     m.insert("item".into(), simple("intervalItem")?);
     put(
@@ -659,11 +656,7 @@ const OP_TABLE: &[(&str, &str)] = &[
     ("op_double_pipe", "COMBINE"),
 ];
 
-const UNARY_OPS: &[(&str, &str)] = &[
-    ("op_plus", "PLUS"),
-    ("op_minus", "MINUS"),
-    ("tNOT", "NOT"),
-];
+const UNARY_OPS: &[(&str, &str)] = &[("op_plus", "PLUS"), ("op_minus", "MINUS"), ("tNOT", "NOT")];
 
 const REL_OPS: &[(&str, &str)] = &[
     ("op_equals", "EQUAL"),
@@ -709,8 +702,7 @@ fn rel_op_string(arena: &AstArena, rel_extended: &AstNode) -> Option<String> {
 
 fn interval_op_string(arena: &AstArena, op_node: &AstNode) -> Option<String> {
     // intervalOp nodes nest one {intervalOp: …} wrapper or arrive raw.
-    let inner = hash_get(arena, op_node, "intervalOp")
-        .unwrap_or_else(|| op_node.clone());
+    let inner = hash_get(arena, op_node, "intervalOp").unwrap_or_else(|| op_node.clone());
     op_string(arena, &inner, INTERVAL_OPS)
 }
 
@@ -725,10 +717,9 @@ fn keyword_ref_value(arena: &AstArena, n: &AstNode) -> Value {
 }
 
 fn enumeration_reference_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
-    let type_ref = hash_get(arena, n, "typeRef")
-        .and_then(|t| simple_ref(arena, &t, REF_ID_KEYS));
-    let enum_ref = hash_get(arena, n, "enumerationRef")
-        .and_then(|e| simple_ref(arena, &e, REF_ID_KEYS));
+    let type_ref = hash_get(arena, n, "typeRef").and_then(|t| simple_ref(arena, &t, REF_ID_KEYS));
+    let enum_ref =
+        hash_get(arena, n, "enumerationRef").and_then(|e| simple_ref(arena, &e, REF_ID_KEYS));
     match (type_ref, enum_ref) {
         (Some(t), Some(e)) => {
             let mut m = node(CLASS_ATTRIBUTE_REFERENCE);
@@ -745,8 +736,7 @@ fn enumeration_reference_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
 /// (qualifier_builder.build_qualified_attribute).
 pub(crate) fn qualified_attribute_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     let attr = hash_get(arena, n, "attributeQualifier").and_then(|aq| {
-        hash_get(arena, &aq, "attributeRef")
-            .and_then(|ar| simple_ref(arena, &ar, REF_ID_KEYS))
+        hash_get(arena, &aq, "attributeRef").and_then(|ar| simple_ref(arena, &ar, REF_ID_KEYS))
     });
     let group = hash_get(arena, n, "groupQualifier").and_then(|gq| {
         let mut self_ref = node(CLASS_SIMPLE_REFERENCE);
@@ -755,8 +745,7 @@ pub(crate) fn qualified_attribute_json(arena: &AstArena, n: &AstNode) -> Option<
         m.insert("ref".into(), obj(self_ref));
         m.insert(
             "entity".into(),
-            hash_get(arena, &gq, "entityRef")
-                .and_then(|er| simple_ref(arena, &er, REF_ID_KEYS))?,
+            hash_get(arena, &gq, "entityRef").and_then(|er| simple_ref(arena, &er, REF_ID_KEYS))?,
         );
         Some(obj(m))
     });

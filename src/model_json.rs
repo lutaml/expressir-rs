@@ -17,8 +17,8 @@
 //! references after hydration, exactly as it does for the Ruby-built
 //! model.
 
-mod declarations;
 mod data_types;
+mod declarations;
 mod expressions;
 mod statements;
 
@@ -201,7 +201,9 @@ pub(crate) fn children_of(arena: &AstArena, host: &AstNode, key: &str) -> Vec<As
             None => vec![host.clone()],
         },
     };
-    raw.into_iter().map(|w| unwrap_child(arena, &w, key)).collect()
+    raw.into_iter()
+        .map(|w| unwrap_child(arena, &w, key))
+        .collect()
 }
 
 /// Unwrap a repetition element: {wrapper: inner} → inner; already-raw
@@ -260,4 +262,3 @@ pub(crate) const REF_ID_KEYS: &[&str] = &[
     "renameId",
     "simpleId",
 ];
-

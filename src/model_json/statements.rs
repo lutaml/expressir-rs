@@ -7,7 +7,10 @@ use parsanol::portable::{AstArena, AstNode};
 use crate::walk::{hash_get, hash_pairs, nested_text};
 
 use super::expressions::{actual_parameters_json, apply_qualifiers, build, expression_value};
-use super::{attach_offset, children_of, node, obj, put, put_list, simple_ref, CLASS_SIMPLE_REFERENCE, REF_ID_KEYS};
+use super::{
+    attach_offset, children_of, node, obj, put, put_list, simple_ref, CLASS_SIMPLE_REFERENCE,
+    REF_ID_KEYS,
+};
 
 const CLASS_ALIAS: &str = "Expressir::Model::Statements::Alias";
 const CLASS_ASSIGNMENT: &str = "Expressir::Model::Statements::Assignment";
@@ -38,7 +41,8 @@ pub(crate) fn stmt_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
             "nullStmt" => Some(obj(node(CLASS_NULL))),
             "procedureCallStmt" => procedure_call_json(arena, &value),
             _ => None,
-        }).map(|mut v| {
+        })
+        .map(|mut v| {
             attach_offset(arena, &value, &mut v);
             v
         });
@@ -71,8 +75,7 @@ fn general_ref_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
 
 fn assignment_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     let mut m = node(CLASS_ASSIGNMENT);
-    let mut r#ref = hash_get(arena, n, "generalRef")
-        .and_then(|g| general_ref_json(arena, &g))?;
+    let mut r#ref = hash_get(arena, n, "generalRef").and_then(|g| general_ref_json(arena, &g))?;
     if let Some(quals) = hash_get(arena, n, "qualifier") {
         r#ref = apply_qualifiers(arena, r#ref, Some(quals))?;
     }
@@ -90,16 +93,20 @@ fn alias_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     put(
         &mut m,
         "id",
-        hash_get(arena, n, "variableId").and_then(|v| nested_text(arena, &v))
+        hash_get(arena, n, "variableId")
+            .and_then(|v| nested_text(arena, &v))
             .map(Value::String),
     );
-    let mut expression = hash_get(arena, n, "generalRef")
-        .and_then(|g| general_ref_json(arena, &g))?;
+    let mut expression =
+        hash_get(arena, n, "generalRef").and_then(|g| general_ref_json(arena, &g))?;
     if let Some(quals) = hash_get(arena, n, "qualifier") {
         expression = apply_qualifiers(arena, expression, Some(quals))?;
     }
     m.insert("expression".into(), expression);
-    m.insert("statements".into(), Value::Array(stmts_json(arena, n, "stmt")));
+    m.insert(
+        "statements".into(),
+        Value::Array(stmts_json(arena, n, "stmt")),
+    );
     Some(obj(m))
 }
 
@@ -165,8 +172,7 @@ fn case_actions_json(arena: &AstArena, n: &AstNode) -> Vec<Value> {
             m.insert("labels".into(), Value::Array(labels));
             m.insert(
                 "statement".into(),
-                hash_get(arena, &action, "stmt")
-                    .and_then(|s| stmt_json(arena, &s))?,
+                hash_get(arena, &action, "stmt").and_then(|s| stmt_json(arena, &s))?,
             );
             Some(obj(m))
         })
@@ -175,7 +181,10 @@ fn case_actions_json(arena: &AstArena, n: &AstNode) -> Vec<Value> {
 
 fn compound_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     let mut m = node(CLASS_COMPOUND);
-    m.insert("statements".into(), Value::Array(stmts_json(arena, n, "stmt")));
+    m.insert(
+        "statements".into(),
+        Value::Array(stmts_json(arena, n, "stmt")),
+    );
     Some(obj(m))
 }
 
@@ -227,7 +236,10 @@ fn repeat_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
                 .and_then(|le| build(arena, &le)),
         );
     }
-    m.insert("statements".into(), Value::Array(stmts_json(arena, n, "stmt")));
+    m.insert(
+        "statements".into(),
+        Value::Array(stmts_json(arena, n, "stmt")),
+    );
     Some(obj(m))
 }
 
@@ -259,9 +271,7 @@ fn keyword_ref_value(arena: &AstArena, n: &AstNode) -> Value {
     let mut m = node(CLASS_SIMPLE_REFERENCE);
     m.insert(
         "id".into(),
-        Value::String(
-            crate::walk::nested_text(arena, n).unwrap_or_default(),
-        ),
+        Value::String(crate::walk::nested_text(arena, n).unwrap_or_default()),
     );
     obj(m)
 }
