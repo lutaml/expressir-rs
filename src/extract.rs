@@ -324,13 +324,13 @@ fn collect_parameter_ids(arena: &AstArena, node: &AstNode) -> Vec<String> {
 }
 
 /// `xId` → `simpleId` → `str` → text; empty string when absent.
-fn rule_id_str(arena: &AstArena, id_node: Option<&AstNode>) -> String {
+pub fn rule_id_str(arena: &AstArena, id_node: Option<&AstNode>) -> String {
     rule_id_str_opt(arena, id_node).unwrap_or_default()
 }
 
 /// Strip one layer of surrounding single quotes (string literals keep
 /// their quotes in the tree; the model stores the bare value).
-fn unquote(s: String) -> String {
+pub fn unquote(s: String) -> String {
     if s.len() >= 2 && s.starts_with('\'') && s.ends_with('\'') {
         s[1..s.len() - 1].to_string()
     } else {
@@ -338,7 +338,7 @@ fn unquote(s: String) -> String {
     }
 }
 
-fn rule_id_str_opt(arena: &AstArena, id_node: Option<&AstNode>) -> Option<String> {
+pub fn rule_id_str_opt(arena: &AstArena, id_node: Option<&AstNode>) -> Option<String> {
     let id_node = id_node?;
     let simple = hash_get(arena, id_node, "simpleId").or_else(|| Some(id_node.clone()))?;
     let str_node = hash_get(arena, &simple, "str").or(Some(simple))?;
