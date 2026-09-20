@@ -8,6 +8,8 @@
 //! labels), types, functions, procedures, rules, and constants.
 //! Subsequent phases deepen the model and move remark attachment.
 
+pub mod batch;
+pub mod compiled_set;
 pub mod extract;
 pub mod model;
 pub mod model_json;
@@ -26,6 +28,15 @@ use parsanol::portable::{AstArena, Grammar, PortableParser};
 /// (`Parsanol::Native::Parser.grammar_json`). Regenerate with
 /// `bundle exec rake expressir:grammar:dump`.
 const EXPRESS_GRAMMAR_JSON: &str = include_str!("../assets/express-grammar.json");
+
+/// Crate version, embedded for artifact headers.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// SHA-256 of the embedded grammar JSON — part of the compiled-set
+/// identity (a grammar change invalidates every artifact).
+pub fn grammar_digest() -> String {
+    compiled_set::sha256_hex(EXPRESS_GRAMMAR_JSON.as_bytes())
+}
 
 fn grammar() -> &'static Grammar {
     static GRAMMAR: OnceLock<Grammar> = OnceLock::new();
