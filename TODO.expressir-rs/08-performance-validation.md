@@ -41,9 +41,20 @@ both paths and now dominates. expressir-side levers left:
   is ~0.9s shared by both paths.
 
 Even a zero-cost post-parse pipeline caps expressir-side gains near
-1.6x. **End-to-end 4x requires the parse itself to get ~3x faster —
-parsanol engine work** (parsanol 0.7.3 ships only the interpreter-style
-`PortableParser`; no bytecode/VM backend yet).
+1.6x. End-to-end 4x requires the parse itself to get ~3x faster.
+
+**parsanol 0.7.3 DOES ship a bytecode VM** (correction of an earlier
+note). `compile_bytecode` + `parse_with_vm` (compile-once) vs
+`PortableParser` on this corpus (`examples/vm_bench.rs`): trees
+content-identical 29/29 (cross-arena deep comparison — pool indexes
+differ by interning order, so `PartialEq`/`Debug` comparison is
+meaningless across arenas), aggregate 1.2-1.4x wall, 2-3x on
+backtracking-heavy mid-size schemas, parity on the two most ambiguous
+giants, VM fixed overhead loses on tiny files; arena footprints equal.
+Adoption blockers + asks filed upstream: **parsanol-rs#90** (compile-once
+handle behind the `ParsingBackend` trait, arena ownership parity, and
+selective memoization in the VM — the piece that would spread the 2-3x
+across ALL files).
 
 ## Benchmark entry points
 
