@@ -137,8 +137,7 @@ fn real_type_json(arena: &AstArena, n: &AstNode) -> Value {
 /// LIST/SET/BAG/ARRAY [bounds] OF …, with OPTIONAL/UNIQUE flags.
 ///
 /// build_aggregation_type always passes both flags, so Array renders
-/// optional/unique (false included) and List renders unique — the
-/// general_* variants (parameter-type position) omit them.
+/// optional/unique (false included) and List renders unique.
 fn aggregation_type_json(arena: &AstArena, n: &AstNode, class: &str) -> Value {
     let mut m = node(class);
     put_bounds(arena, &mut m, n);
@@ -161,9 +160,21 @@ fn aggregation_type_json(arena: &AstArena, n: &AstNode, class: &str) -> Value {
     obj(m)
 }
 
+/// General aggregations (parameter-type position). Element modifiers
+/// are legal here too; the model carries them only on Array (both) and
+/// List (unique) (GH-338).
 fn general_aggregation_json(arena: &AstArena, n: &AstNode, class: &str) -> Value {
     let mut m = node(class);
     put_bounds(arena, &mut m, n);
+    let optional = hash_get(arena, n, "tOPTIONAL").is_some();
+    let unique = hash_get(arena, n, "tUNIQUE").is_some();
+    if class == CLASS_ARRAY {
+        m.insert("optional".into(), Value::Bool(optional));
+        m.insert("unique".into(), Value::Bool(unique));
+    }
+    if class == CLASS_LIST {
+        m.insert("unique".into(), Value::Bool(unique));
+    }
     put(
         &mut m,
         "base_type",
