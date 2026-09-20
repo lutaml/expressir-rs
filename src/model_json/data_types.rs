@@ -83,8 +83,8 @@ fn concrete_type_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
             "integerType" => Some(obj(node(CLASS_INTEGER))),
             "logicalType" => Some(obj(node(CLASS_LOGICAL))),
             "numberType" => Some(obj(node(CLASS_NUMBER))),
-            "genericType" => Some(obj(node(CLASS_GENERIC))),
-            "genericEntityType" => Some(obj(node(CLASS_GENERIC_ENTITY))),
+            "genericType" => Some(generic_json(arena, &value, CLASS_GENERIC)),
+            "genericEntityType" => Some(generic_json(arena, &value, CLASS_GENERIC_ENTITY)),
             "enumerationType" => enumeration_type_json(arena, &value),
             "selectType" => select_type_json(arena, &value),
             "entityRef" => simple_ref(arena, &value, REF_ID_KEYS),
@@ -157,6 +157,18 @@ fn aggregation_type_json(arena: &AstArena, n: &AstNode, class: &str) -> Value {
             .or_else(|| hash_get(arena, n, "parameterType"))
             .and_then(|it| concrete_type_json(arena, &it)),
     );
+    obj(m)
+}
+
+/// GENERIC[: label] / GENERIC_ENTITY[: label] — the label rides
+/// typeLabel/typeLabelId/simpleId (GH-339).
+fn generic_json(arena: &AstArena, n: &AstNode, class: &str) -> Value {
+    let mut m = node(class);
+    let id = hash_get(arena, n, "typeLabel")
+        .and_then(|tl| hash_get(arena, &tl, "typeLabelId"))
+        .and_then(|ti| hash_get(arena, &ti, "simpleId"))
+        .and_then(|sid| nested_text(arena, &sid));
+    put(&mut m, "id", id.map(Value::String));
     obj(m)
 }
 

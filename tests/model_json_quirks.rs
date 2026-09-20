@@ -146,3 +146,15 @@ fn unique_rules_drop_phantom_fragments() {
     assert_eq!(u[0]["id"], "UR1");
     assert_eq!(u[1]["id"], "UR2");
 }
+
+#[test]
+fn generic_types_carry_their_labels() {
+    // GENERIC : label / GENERIC_ENTITY : label — ISO 10303-11 9.5.3.2
+    // (GH-339).
+    let src = "SCHEMA s;\nFUNCTION pick(c1 : GENERIC : item) : GENERIC_ENTITY : item;\nRETURN (c1);\nEND_FUNCTION;\nEND_SCHEMA;\n";
+    let v = wire(src);
+    let params = &schema(&v)["functions"][0]["parameters"];
+    assert_eq!(params[0]["type"]["id"], "item");
+    let ret = &schema(&v)["functions"][0]["return_type"];
+    assert_eq!(ret["id"], "item");
+}
