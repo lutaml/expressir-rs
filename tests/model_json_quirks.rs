@@ -90,14 +90,15 @@ fn subtype_constraint_always_renders_abstract() {
 }
 
 #[test]
-fn multi_ref_subtype_of_produces_no_subtype_of() {
-    // entity_decl_builder reads only the single-hash form of the
-    // SUBTYPE OF list; the array form produces no subtype_of.
+fn multi_ref_subtype_of_collects_all_refs() {
+    // SUBTYPE OF (a, b) arrives as fragments merged with the op_comma
+    // token; every entityRef still lands in subtype_of (GH-341).
     let src = "SCHEMA s;\nENTITY a; END_ENTITY;\nENTITY b; END_ENTITY;\nENTITY c SUBTYPE OF (a, b); END_ENTITY;\nEND_SCHEMA;\n";
     let v = wire(src);
     let c = &schema(&v)["entities"][2];
     assert_eq!(c["id"], "c");
-    assert!(c.get("subtype_of").is_none());
+    assert_eq!(c["subtype_of"][0]["id"], "a");
+    assert_eq!(c["subtype_of"][1]["id"], "b");
 }
 
 #[test]
@@ -119,4 +120,29 @@ fn interfaces_always_carry_an_items_array() {
     assert_eq!(interface["kind"], "REFERENCE");
     assert_eq!(interface["schema"]["id"], "other");
     assert_eq!(interface["items"].as_array().map(Vec::len), Some(0));
+}
+
+#[test]
+fn general_aggregations_carry_element_modifiers() {
+    // Attribute types route through the general aggregation types;
+    // OPTIONAL/UNIQUE element modifiers must survive (GH-338).
+    let src = "SCHEMA s;\nENTITY thing; END_ENTITY;\nENTITY holder;\nitems : LIST [1:?] OF UNIQUE thing;\narr : ARRAY [1:3] OF OPTIONAL thing;\nEND_ENTITY;\nEND_SCHEMA;\n";
+    let v = wire(src);
+    let attrs = &schema(&v)["entities"][1]["attributes"];
+    assert_eq!(attrs[0]["id"], "items");
+    assert_eq!(attrs[0]["type"]["unique"], true);
+    assert_eq!(attrs[1]["id"], "arr");
+    assert_eq!(attrs[1]["type"]["optional"], true);
+}
+
+#[test]
+fn unique_rules_drop_phantom_fragments() {
+    // The separator repetition can yield a label-less, attribute-less
+    // fragment between real rules; it must not surface (GH-340).
+    let src = "SCHEMA s;\nENTITY thing;\na : STRING;\nb : STRING;\nUNIQUE\nUR1: a;\nUR2: b;\nEND_ENTITY;\nEND_SCHEMA;\n";
+    let v = wire(src);
+    let u = &schema(&v)["entities"][0]["unique_rules"];
+    assert_eq!(u.as_array().map(Vec::len), Some(2));
+    assert_eq!(u[0]["id"], "UR1");
+    assert_eq!(u[1]["id"], "UR2");
 }

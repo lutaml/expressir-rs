@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 
 use parsanol::portable::{AstArena, AstNode};
 
-use crate::walk::{as_list, hash_get, hash_pairs, nested_text};
+use crate::walk::{array_items, as_list, hash_get, hash_pairs, nested_text};
 
 use super::data_types::{instantiable_type_json, parameter_type_json, underlying_type_json};
 use super::expressions::{expression_value, qualified_attribute_json, supertype_expression_json};
@@ -439,13 +439,17 @@ fn put_supersuper(arena: &AstArena, m: &mut Map<String, Value>, subsuper: &AstNo
     }
 
     if let Some(decl) = hash_get(arena, subsuper, "subtypeDeclaration") {
-        // Multi-supertype lists arrive as an array mixing tokens and
-        // refs; entity_decl_builder reads only the single-hash form, so
-        // those produce no subtype_of. Mirrored verbatim for parity —
-        // diverging here would change observable Ruby output.
+        // SUBTYPE OF (a) flattens to a holder hash; SUBTYPE OF (a, b) to
+        // an array of fragments (entityRef possibly merged with its
+        // op_comma token). Collect entityRef from either shape (GH-341).
         let refs: Vec<Value> = match hash_get(arena, &decl, "listOf_entityRef") {
             Some(list) => match &list {
-                parsanol::portable::AstNode::Array { .. } => Vec::new(),
+                parsanol::portable::AstNode::Array { .. } => array_items(arena, &list)
+                    .into_iter()
+                    .filter_map(|el| hash_get(arena, &el, "entityRef"))
+                    .flat_map(|er| as_list(arena, &er))
+                    .filter_map(|er| simple_ref(arena, &er, REF_ID_KEYS))
+                    .collect(),
                 _ => children_of(arena, &list, "entityRef")
                     .into_iter()
                     .filter_map(|er| simple_ref(arena, &er, REF_ID_KEYS))
@@ -675,24 +679,35 @@ fn unique_rules_json(arena: &AstArena, host: &AstNode) -> Vec<Value> {
         .into_iter()
         .filter_map(|raw| {
             let inner = unwrap_child(arena, &raw, "uniqueRule");
-            let mut m = node(CLASS_UNIQUE_RULE);
             let id = hash_get(arena, &inner, "ruleLabelId").and_then(|r| nested_text(arena, &r));
-            put(&mut m, "id", id.map(Value::String));
             let mut attributes = Vec::new();
             if let Some(list) = hash_get(arena, &inner, "listOf_referencedAttribute") {
                 for attr in children_of(arena, &list, "referencedAttribute") {
+                    // Unbuildable fragments compact away per attribute
+                    // rather than dropping the whole rule (GH-340).
                     let r = if let Some(ar) = hash_get(arena, &attr, "attributeRef") {
-                        let mut r = simple_ref(arena, &ar, REF_ID_KEYS)?;
-                        attach_offset(arena, &ar, &mut r);
-                        Some(r)
+                        simple_ref(arena, &ar, REF_ID_KEYS).map(|mut r| {
+                            attach_offset(arena, &ar, &mut r);
+                            r
+                        })
                     } else if let Some(qa) = hash_get(arena, &attr, "qualifiedAttribute") {
                         qualified_attribute_json(arena, &qa)
                     } else {
                         None
-                    }?;
-                    attributes.push(r);
+                    };
+                    if let Some(r) = r {
+                        attributes.push(r);
+                    }
                 }
             }
+            // The separator repetition can yield a phantom rule
+            // fragment (no label, no attributes); drop it so clean
+            // output never emits a bare ";" (GH-340).
+            if id.is_none() && attributes.is_empty() {
+                return None;
+            }
+            let mut m = node(CLASS_UNIQUE_RULE);
+            put(&mut m, "id", id.map(Value::String));
             put_list(&mut m, "attributes", attributes);
             let mut v = obj(m);
             attach_offset(arena, &raw, &mut v);
