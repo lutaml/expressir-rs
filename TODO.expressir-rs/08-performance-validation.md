@@ -1,4 +1,4 @@
-**Status: MEASURED — negative result, core path is currently slower end-to-end** (2026-09-20)
+**Status: MEASURED — core path 1.33x faster end-to-end after direct construction** (2026-09-20)
 
 ## Method
 
@@ -7,30 +7,49 @@ metanorma-smol corpus, native ext built in the release profile
 (`make RB_SYS_CARGO_PROFILE=release`):
 
 ```
-ruby path: user 10.81  sys 0.26  total 11.07
-core path: user 12.38  sys 0.26  total 12.64
-speedup:   0.88x  (core path ~14% slower)
+ruby path: user 10.71  sys 0.22  total 10.93
+core path: user  8.08  sys 0.14  total  8.23
+speedup:   1.33x
 ```
 
-## Why
+History: 0.88x (2026-09-20, hash-path hydration) → 1.33x (direct
+construction, below).
 
-The core path trades the Ruby tree conversion for: Rust JSON string →
-`JSON.parse` (Ruby) → `ExpFile.from_hash` (lutaml-model hydration:
-per-node instance construction + polymorphic resolution) →
-`wire_parents`. After parsanol 1.3.x made the native parse itself
-several times faster, the remaining Ruby-builder cost is smaller than
-the hydration cost. The ext must also be built with the release profile
-(rb_sys defaults to dev locally) — a dev-profile ext is dramatically
-worse.
+## Pipeline (after direct construction)
 
-## Follow-up options (in priority order)
+```
+Rust:  parsanol packrat parse → wire JSON tree (serde Value)   ~4.3s CPU
+Ext:   walk wire tree → RHash attrs → Klass.instantiate        ~0.6s
+Ruby:  wire_parents 0.08s | RemarkAttacher ~0.9s | resolver 0.16s
+```
 
-1. Cut the JSON round-trip: build the model objects directly through
-   magnus instead of `to_model_json` → `JSON.parse` → `from_hash`
-   (largest win; removes one serialization and lutaml-model's
-   polymorphic dispatch).
-2. Profile `from_hash`/hydration itself; the polymorphic `_class`
-   const-get path is hot.
-3. Keep the core path opt-in until (1) lands — the parity gate
-   (`parser_core_parity_spec`) holds either way, so the switch is
-   one line.
+Hydration dropped from 4.56s (`ExpFile.from_hash`, generic mapping
+machinery) to ~0.2s (lutaml-model#819 `Serializable.instantiate`,
+called from the ext: expressir#370 `parse_to_model`).
+
+## Remaining bottleneck (honest ceiling)
+
+The raw packrat parse (~4.3s CPU, ~52% of core-path total) is shared by
+both paths and now dominates. expressir-side levers left:
+
+- `to_parslet_compatible` normalization: 14% of the parse pipeline
+  (`normalize_bench` example); skipping it means rewriting the walk
+  layer against the raw tagged tree.
+- serde `Value` intermediate: folding the walk into arena extraction
+  saves the tree build (~0.5s CPU).
+- RemarkAttacher's `node.source` formatting at remark_attacher.rb:300
+  is ~0.9s shared by both paths.
+
+Even a zero-cost post-parse pipeline caps expressir-side gains near
+1.6x. **End-to-end 4x requires the parse itself to get ~3x faster —
+parsanol engine work** (parsanol 0.7.3 ships only the interpreter-style
+`PortableParser`; no bytecode/VM backend yet).
+
+## Benchmark entry points
+
+- `examples/corpus_bench.rs` — parse-only vs +wire Value vs +JSON string
+- `examples/normalize_bench.rs` — normalization share of the pipeline
+- expressir `/tmp/core_bench.rb` pattern — fork-isolated Ruby-side totals
+
+The ext must be built with the release profile (rb_sys defaults to dev
+locally) — a dev-profile ext is dramatically worse.
