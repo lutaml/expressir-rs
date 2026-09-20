@@ -1,6 +1,19 @@
 # 10 — Compiled schema set: async batch compile, binary artifact, warm start
 
-**Status: DESIGN (2026-09-20), approved direction**
+**Status: PHASES 1-2 SHIPPED (2026-09-20)** — batch compiler (expressir-rs
+`batch`, ext `BatchStream`, `from_files` rework with input-ordered
+progress, read-error raising, parse-failure nil-padding), EXSCS1
+artifact (bincode envelope, wire-as-JSON, deterministic order,
+SHA-256 set/grammar digests, staleness rejection), warm start with
+byte-parity gate (`parser_compiled_set_spec`, SRL 132-schema corpus
+12.0s cold vs 7.8s warm, identical to_hash). Scaled SRL numbers and
+the plugin-level e2e (Metanorma plugin loader → from_files →
+artifact → warm, models identical) verified. Parsanol bumped to
+0.7.6. Remaining: full `metanorma compile` render blocked on
+upstream release skew (metanorma-document 0.2.7+ double-defines
+SourcecodeBody breaking lutaml-model map_all; 0.2.x needs unshipped
+lutaml-model BasicObject type); rkyv/mmap layout; graph tables
+in-artifact; Tier-2 drops. Original design follows.
 
 ## Premise
 
