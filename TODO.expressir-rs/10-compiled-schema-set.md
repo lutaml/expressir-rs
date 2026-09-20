@@ -103,3 +103,35 @@ the artifact.
   subtype closure, attribute conformance, inverse attrs, WHERE rules
   via an expression interpreter — expressions already modeled)
 - ARM/MIM graphing served entirely from the compiled graph
+
+## Render consumer: Metanorma Liquid over the compiled set
+
+Liquid rendering is the third consumer of the artifact. The iso-10303
+template surface is BOUNDED (~25 properties, inventoried 2026-09-20):
+`thing.id/remarks/remark_items/where_rules/unique_rules/attributes/
+variables/parameters/constants/types/items/source`,
+`schema.{entities,types,functions,rules,procedures,constants,
+subtype_constraints,interfaces,id}`,
+`interface.{schema.id,source}`, `definition.{applies_to.{id,base_path},
+underlying_type}`, `subtypes.size`, cross-schema `all_schemas | where:"id"`.
+That surface = wire model + resolved paths + formatted sources +
+graph lookups — all deterministic, all belong in the artifact.
+
+Compile step therefore also runs (Ruby, compile-time only):
+RemarkAttacher + SourceFormatter per node, storing formatted source
+(and hyperlink-formatted variant) in the artifact. Render never
+formats again.
+
+Two tiers:
+
+- **Tier 1 (compatible, cheap)**: artifact + lazy per-schema hydration.
+  A document rendering N schemas pays N/1307 of hydration; graph
+  queries (subtypes, referenced schemas, where:"id" lookups) served
+  from the precomputed tables. No template or drop changes.
+- **Tier 2 (full Rust serve)**: drop-compatible objects backed by
+  magnus handles into the compiled set — no hydration at render at
+  all; formatted sources read from the artifact. Gated by a parity
+  spec: render the smol corpus through both tiers, diff byte-for-byte.
+
+Parity gate for the artifact itself: to_hash of every hydrated model
+== today's cold path (parser_core_parity_spec extended to warm load).
