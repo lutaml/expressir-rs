@@ -22,9 +22,9 @@ object building; serialization measured at 0.064s), overlays 1.4s.
 
 | # | task | status |
 |---|---|---|
-| 11 | parsanol engine enhancements (#100) | BLOCKED on #106 (EOF regression in 0.7.7-0.8.1, pinned =0.7.6) |
-| 12 | skip to_parslet_compatible | MERGED into 13 — needs the 0.8.1 raw-tree API (#106) |
-| 13 | serde→magnus fold | MERGED with 12: single direct-arena walker project, blocked on #106 |
+| 11 | parsanol engine enhancements (#100) | #106 (EOF scan fix) merged — `aarch64` fuse regression lifted; root cause confirmed in #107, fix in `parsanol-v0.8.2`. Named-separator list-pattern fix (multi-parameter / multi-attribute) on top of #83 splice. The 4 upstream asks now degrade to "selective VM memoization" + "raw-tree API stable" |
+| 12 | skip to_parslet_compatible | MERGED into 13 — the fix patch lands the Ruby-faithful merge fold; raw-tree API is the next lever, not a blocker |
+| 13 | serde→magnus fold | MERGED with 12: serial-vs-direct-arena cost measured (warm breakdown 3.26s hydrate+wire vs 0.064s serde); direct-arena walker now actionable end-to-end |
 | 14 | rkyv artifact v2 | CLOSED with evidence — serialization measured 0.064s; JSON tables serve graph queries at ms cost |
 | 15 | graph tables + ItemGraph | SHIPPED (see 15-graph-tables… for remaining native-query notes) |
 | 16 | lazy per-schema hydration | DE-SCOPED with evidence — per-document manifests already load few schemas |
@@ -34,5 +34,8 @@ object building; serialization measured at 0.064s), overlays 1.4s.
 
 The one remaining big lever: **12+13 combined — a direct-arena walker
 (no serde Value, no normalization) building Ruby objects on the main
-thread.** Blocked on parsanol#106 (raw-tree API lives in 0.8.1).
+thread.** Now actionable: parsanol-rs#107 (0.8.2) ships #106, and the
+list-pattern fold fix means an untouched arena walker no longer
+silently drops first-elements of lists. Profile first; if memory and
+wall-clock benefits are non-trivial, the second walker is justified.
 Everything else actionable without upstream is shipped and gated.
