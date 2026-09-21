@@ -28,10 +28,7 @@ const BOM: &[u8] = b"\xEF\xBB\xBF";
 /// Compile `jobs` — `(read_path, wire_path)` pairs — on `workers`
 /// threads (`0` = `available_parallelism`), returning a receiver that
 /// yields one outcome per job in completion order and then closes.
-pub fn parse_batch(
-    jobs: Vec<(String, String)>,
-    workers: usize,
-) -> mpsc::Receiver<BatchOutcome> {
+pub fn parse_batch(jobs: Vec<(String, String)>, workers: usize) -> mpsc::Receiver<BatchOutcome> {
     let (job_tx, job_rx) = mpsc::channel::<(String, String)>();
     let (res_tx, res_rx) = mpsc::channel::<BatchOutcome>();
     let job_rx = Arc::new(Mutex::new(job_rx));
@@ -137,8 +134,12 @@ mod tests {
         let rx = parse_batch(jobs, 2);
         let outcomes: Vec<_> = rx.iter().collect();
         assert_eq!(outcomes.len(), 2);
-        assert!(outcomes.iter().any(|o| o.path == "missing" && o.result.is_err()));
-        assert!(outcomes.iter().any(|o| o.path == "good" && o.result.is_ok()));
+        assert!(outcomes
+            .iter()
+            .any(|o| o.path == "missing" && o.result.is_err()));
+        assert!(outcomes
+            .iter()
+            .any(|o| o.path == "good" && o.result.is_ok()));
     }
 
     #[test]
@@ -146,7 +147,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("expressir-batch-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("bom.exp");
-        std::fs::write(&path, format!("\u{FEFF}SCHEMA bom; END_SCHEMA;\n")).unwrap();
+        std::fs::write(&path, "\u{FEFF}SCHEMA bom; END_SCHEMA;\n").unwrap();
         let rx = parse_batch(vec![(path.to_string_lossy().into_owned(), "bom".into())], 1);
         let outcome = rx.iter().next().unwrap();
         let wire = outcome.result.as_ref().expect("bom parses");

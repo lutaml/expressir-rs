@@ -17,21 +17,32 @@ fn deep_equal(a: &AstArena, x: &AstNode, b: &AstArena, y: &AstNode) -> bool {
         (AstNode::Bool(p), AstNode::Bool(q)) => p == q,
         (AstNode::Int(p), AstNode::Int(q)) => p == q,
         (AstNode::Float(p), AstNode::Float(q)) => p == q,
-        (
-            AstNode::StringRef { pool_index: p },
-            AstNode::StringRef { pool_index: q },
-        ) => a.get_string(*p as usize) == b.get_string(*q as usize),
-        (
-            AstNode::InputRef { offset: po, length: pl },
-            AstNode::InputRef { offset: qo, length: ql },
-        ) => {
-            pl == ql
-                && &a.get_input()[*po as usize..(*po + *pl) as usize]
-                    == &b.get_input()[*qo as usize..(*qo + *ql) as usize]
+        (AstNode::StringRef { pool_index: p }, AstNode::StringRef { pool_index: q }) => {
+            a.get_string(*p as usize) == b.get_string(*q as usize)
         }
         (
-            AstNode::Array { pool_index: p, length: pl },
-            AstNode::Array { pool_index: q, length: ql },
+            AstNode::InputRef {
+                offset: po,
+                length: pl,
+            },
+            AstNode::InputRef {
+                offset: qo,
+                length: ql,
+            },
+        ) => {
+            pl == ql
+                && a.get_input()[*po as usize..(*po + *pl) as usize]
+                    == b.get_input()[*qo as usize..(*qo + *ql) as usize]
+        }
+        (
+            AstNode::Array {
+                pool_index: p,
+                length: pl,
+            },
+            AstNode::Array {
+                pool_index: q,
+                length: ql,
+            },
         ) => {
             pl == ql
                 && a.get_array(*p as usize, *pl as usize)
@@ -40,16 +51,20 @@ fn deep_equal(a: &AstArena, x: &AstNode, b: &AstArena, y: &AstNode) -> bool {
                     .all(|(xi, yi)| deep_equal(a, xi, b, yi))
         }
         (
-            AstNode::Hash { pool_index: p, length: pl },
-            AstNode::Hash { pool_index: q, length: ql },
+            AstNode::Hash {
+                pool_index: p,
+                length: pl,
+            },
+            AstNode::Hash {
+                pool_index: q,
+                length: ql,
+            },
         ) => {
             pl == ql && {
                 let ah = a.get_hash_items(*p as usize, *pl as usize);
                 let bh = b.get_hash_items(*q as usize, *ql as usize);
-                ah.iter().all(|(k, v)| {
-                    bh.iter()
-                        .any(|(k2, v2)| k == k2 && deep_equal(a, v, b, v2))
-                })
+                ah.iter()
+                    .all(|(k, v)| bh.iter().any(|(k2, v2)| k == k2 && deep_equal(a, v, b, v2)))
             }
         }
         _ => false,
