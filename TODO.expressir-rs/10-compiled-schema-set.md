@@ -12,8 +12,8 @@ artifact → warm, models identical) verified. Parsanol bumped to
 0.7.6. Remaining: full `metanorma compile` render blocked on
 upstream release skew (metanorma-document 0.2.7+ double-defines
 SourcecodeBody breaking lutaml-model map_all; 0.2.x needs unshipped
-lutaml-model BasicObject type); rkyv/mmap layout; graph tables
-in-artifact; Tier-2 drops. Original design follows.
+lutaml-model BasicObject type); remaining work moved to
+TODO.expressir-rs/11-19 (see README)
 
 ## Premise
 
