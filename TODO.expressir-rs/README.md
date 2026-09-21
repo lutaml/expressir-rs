@@ -22,20 +22,17 @@ object building; serialization measured at 0.064s), overlays 1.4s.
 
 | # | task | status |
 |---|---|---|
-| 11 | parsanol engine enhancements (#100) | #106 (EOF scan fix) merged — `aarch64` fuse regression lifted; root cause confirmed in #107, fix in `parsanol-v0.8.2`. Named-separator list-pattern fix (multi-parameter / multi-attribute) on top of #83 splice. The 4 upstream asks now degrade to "selective VM memoization" + "raw-tree API stable" |
-| 12 | skip to_parslet_compatible | MERGED into 13 — the fix patch lands the Ruby-faithful merge fold; raw-tree API is the next lever, not a blocker |
-| 13 | serde→magnus fold | MERGED with 12: serial-vs-direct-arena cost measured (warm breakdown 3.26s hydrate+wire vs 0.064s serde); direct-arena walker now actionable end-to-end |
+| 11 | parsanol engine enhancements (#100) | #106 (EOF scan fix) merged — `aarch64` fuse regression lifted; root cause confirmed in #107, fix in `parsanol-v0.8.2`. Named-separator list-pattern fix (multi-parameter / multi-attribute) on top of #83 splice. VM on SRL corpus: **1.05x, parity 135/135** — per-file backend selection not justified. Normalize interned-key perf: parsanol-rs#111 (−28% normalize) |
+| 12 | skip to_parslet_compatible | Measured 12.6% of Rust cold on SRL (2.92s of ~26s); after #111 the prize is ~2.1s (~8%). Raw-tree walker remains OPEN but marginal — revisit after VM/selective-memoization upstream work |
+| 13 | serde→magnus fold | **CLOSED with evidence** — emit Value tree 0.43s + serde to_string 0.06s of ~30s ext cold (135 files): clears neither the −0.4s CPU gate nor justifies a second walker; instantiate floor untouched by the fold. Revisit only if transient RSS binds at SMRL scale |
 | 14 | rkyv artifact v2 | CLOSED with evidence — serialization measured 0.064s; JSON tables serve graph queries at ms cost |
 | 15 | graph tables + ItemGraph | SHIPPED (see 15-graph-tables… for remaining native-query notes) |
 | 16 | lazy per-schema hydration | DE-SCOPED with evidence — per-document manifests already load few schemas |
-| 17 | SMRL full-set artifact run | IN PROGRESS (scale validation) |
+| 17 | SMRL full-set artifact run | **SHIPPED** — 1307 schemas / 43MB: 0 failures, cold 288s, warm 105s byte-identical; graph edges 37.7k subtype / 5.5k interface |
 | 18 | Metanorma collection e2e | IN PROGRESS on the 0.2.12 ladder; v3 ladder blocked on metanorma-iso#1644 |
-| 19 | benchmark discipline | STANDING PRACTICE |
+| 19 | benchmark discipline | STANDING PRACTICE — best-of-N stage bench now the default evidence tool |
 
-The one remaining big lever: **12+13 combined — a direct-arena walker
-(no serde Value, no normalization) building Ruby objects on the main
-thread.** Now actionable: parsanol-rs#107 (0.8.2) ships #106, and the
-list-pattern fold fix means an untouched arena walker no longer
-silently drops first-elements of lists. Profile first; if memory and
-wall-clock benefits are non-trivial, the second walker is justified.
-Everything else actionable without upstream is shipped and gated.
+SRL stage split (135 files / 9.2MB, best-of-3, 2026-09-21): raw parse
+18.8–21.5s (box-noisy), normalize ~2.1s, emit Value 0.3s, serde
+0.02s. **Parse is the wall** — the remaining lever lives upstream in
+parsanol (selective VM memoization, #100 item 1).
