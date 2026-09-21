@@ -257,10 +257,8 @@ fn procedure_call_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     let mut m = node(CLASS_PROCEDURE_CALL);
     let procedure = if let Some(pr) = hash_get(arena, n, "procedureRef") {
         simple_ref(arena, &pr, REF_ID_KEYS)
-    } else if let Some(bip) = hash_get(arena, n, "builtInProcedure") {
-        Some(keyword_ref_value(arena, &bip))
     } else {
-        None
+        hash_get(arena, n, "builtInProcedure").map(|bip| keyword_ref_value(arena, &bip))
     }?;
     m.insert("procedure".into(), procedure);
     put_list(&mut m, "parameters", actual_parameters_json(arena, n));

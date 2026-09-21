@@ -161,7 +161,7 @@ fn interface_items(
     };
     children_of(arena, &list, item_key)
         .into_iter()
-        .filter_map(|item| {
+        .map(|item| {
             let mut m = node(super::CLASS_INTERFACE_ITEM);
             let mut r = if kind == "REFERENCE" {
                 hash_get(arena, &item, "resourceRef").and_then(|rr| {
@@ -205,7 +205,7 @@ fn interface_items(
             }
             let mut v = obj(m);
             attach_offset(arena, &item, &mut v);
-            Some(v)
+            v
         })
         .collect()
 }
@@ -646,7 +646,7 @@ fn where_rules_json(arena: &AstArena, host: &AstNode) -> Vec<Value> {
     };
     as_list(arena, &list)
         .into_iter()
-        .filter_map(|raw| {
+        .map(|raw| {
             // The Ruby dispatch attaches with the raw wrapper element —
             // with the depth-capped find_slice that can resolve to the
             // trailing op_delim rather than the expression.
@@ -661,7 +661,7 @@ fn where_rules_json(arena: &AstArena, host: &AstNode) -> Vec<Value> {
             );
             let mut v = obj(m);
             attach_offset(arena, &raw, &mut v);
-            Some(v)
+            v
         })
         .collect()
 }

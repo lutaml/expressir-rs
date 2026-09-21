@@ -548,10 +548,9 @@ fn logical_literal_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
 fn string_literal_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     let (raw, encoded) = if let Some(s) = hash_get(arena, n, "simpleStringLiteral") {
         (nested_text(arena, &s)?, false)
-    } else if let Some(s) = hash_get(arena, n, "encodedStringLiteral") {
-        (nested_text(arena, &s)?, true)
     } else {
-        return None;
+        let s = hash_get(arena, n, "encodedStringLiteral")?;
+        (nested_text(arena, &s)?, true)
     };
     let mut m = node("Expressir::Model::Literals::String");
     // literal_builder strips one surrounding pair of either quote kind
