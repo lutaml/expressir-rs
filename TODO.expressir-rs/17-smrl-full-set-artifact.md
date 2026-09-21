@@ -21,3 +21,9 @@ byte-parity at that scale; record numbers.
   MB — fine, but record).
 - The 7 giant files' worker wall-time — if one exceeds all others
   combined, consider TODO.expressir-rs/11 backend selection sooner.
+
+## Run 2026-09-21 (IN PROGRESS)
+
+Started with the graph + overlays included. Watch: the 7 giant
+mim_lf files' worker wall-time; sidecar sizes; warm parity across
+1307 files.
