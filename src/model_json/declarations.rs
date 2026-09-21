@@ -844,18 +844,30 @@ fn subtype_constraint_decl_json(arena: &AstArena, n: &AstNode) -> Value {
         let is_abstract = hash_get(arena, &body, "abstractSupertype").is_some();
         m.insert("abstract".into(), Value::Bool(is_abstract));
         if let Some(total) = hash_get(arena, &body, "totalOver") {
-            // subtype_constraint_builder reads totalOver.entityRef
-            // directly, missing the listOf_entityRef level — so real
-            // lists never surface. Mirrored for parity.
-            let refs = match hash_get(arena, &total, "entityRef") {
-                Some(list) => as_list(arena, &list)
-                    .into_iter()
-                    .filter_map(|er| {
-                        let mut r = simple_ref(arena, &er, REF_ID_KEYS)?;
-                        attach_offset(arena, &er, &mut r);
-                        Some(r)
-                    })
-                    .collect::<Vec<_>>(),
+            // TOTAL_OVER (a, b) nests the refs under listOf_entityRef
+            // (each fragment carrying an entityRef, possibly merged with
+            // its op_comma token). Read that level, mirroring the fixed
+            // Ruby subtype_constraint_builder (GH-377 parity).
+            let refs: Vec<Value> = match hash_get(arena, &total, "listOf_entityRef") {
+                Some(list) => match &list {
+                    parsanol::portable::AstNode::Array { .. } => array_items(arena, &list)
+                        .into_iter()
+                        .filter_map(|el| hash_get(arena, &el, "entityRef"))
+                        .filter_map(|er| {
+                            let mut r = simple_ref(arena, &er, REF_ID_KEYS)?;
+                            attach_offset(arena, &er, &mut r);
+                            Some(r)
+                        })
+                        .collect(),
+                    _ => children_of(arena, &list, "entityRef")
+                        .into_iter()
+                        .filter_map(|er| {
+                            let mut r = simple_ref(arena, &er, REF_ID_KEYS)?;
+                            attach_offset(arena, &er, &mut r);
+                            Some(r)
+                        })
+                        .collect(),
+                },
                 None => Vec::new(),
             };
             put_list(&mut m, "total_over", refs);
