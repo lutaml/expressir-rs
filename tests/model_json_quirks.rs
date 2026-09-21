@@ -158,3 +158,23 @@ fn generic_types_carry_their_labels() {
     let ret = &schema(&v)["functions"][0]["return_type"];
     assert_eq!(ret["id"], "item");
 }
+
+#[test]
+fn total_over_reads_the_list_of_entity_ref_level() {
+    // The Ruby builder read totalOver.entityRef directly, missing the
+    // listOf_entityRef level, so real lists never surfaced; the wire
+    // emitter mirrored the bug until GH-377 fixed the Ruby side. Pin the
+    // fixed shape on both fragments and single-holder forms.
+    let src = "SCHEMA s;\nENTITY e; END_ENTITY;\nENTITY f SUBTYPE OF (e); END_ENTITY;\n\
+               SUBTYPE_CONSTRAINT c FOR e; TOTAL_OVER (e, f); END_SUBTYPE_CONSTRAINT;\n\
+               END_SCHEMA;\n";
+    let v = wire(src);
+    let total_over = &schema(&v)["subtype_constraints"][0]["total_over"];
+    let ids: Vec<&str> = total_over
+        .as_array()
+        .expect("total_over array")
+        .iter()
+        .map(|r| r["id"].as_str().expect("ref id"))
+        .collect();
+    assert_eq!(ids, ["e", "f"]);
+}
