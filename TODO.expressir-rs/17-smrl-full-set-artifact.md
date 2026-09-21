@@ -22,8 +22,17 @@ byte-parity at that scale; record numbers.
 - The 7 giant files' worker wall-time — if one exceeds all others
   combined, consider TODO.expressir-rs/11 backend selection sooner.
 
-## Run 2026-09-21 (IN PROGRESS)
+## Run 2026-09-21 (COMPLETE — byte parity at full scale)
 
-Started with the graph + overlays included. Watch: the 7 giant
-mim_lf files' worker wall-time; sidecar sizes; warm parity across
-1307 files.
+```
+cold+write 405s (loaded box) | warm 105s | 1307 schemas
+RSS 3.4GB | to_hash identical: TRUE
+artifact 151MB | remarks 26.7MB | refs 95.1MB
+```
+
+- Warm parity holds with all three overlays + graph tables at full
+  scale — the compiled set is production-ready for the corpus.
+- Warm 105s is hydration-bound (magnus object building), consistent
+  with the SRL breakdown scaled ~21x; attack via TODO 13 after #106.
+- Sidecar totals ~123MB vs 151MB artifact — fine, but a single-file
+  bundle is the natural TODO 14 revisit if disk footprint matters.
