@@ -17,7 +17,10 @@ outputs cold vs warm; measure wall time at collection scale.
 
 ## Steps
 
-1. pubid-iso#285 lands (or patch branch) → v3 ladder render green.
+1. pubid-iso#285 is SUPERSEDED: pubid-iso is DEPRECATED — the
+   unified `pubid` gem (2.0.0.pre.alpha.12) parses year-month dates.
+   Remaining blocker moved to metanorma-iso#1644 (its front_id/front
+   still use the deprecated trio's create/stage-error API).
 2. `EXPRESSIR_COMPILED_SET=<srl.exscs> suma build metanorma-srl.yml`.
 3. Diff cold/warm outputs across all documents; record times
    (expect schema-loading share of the build to nearly vanish).
