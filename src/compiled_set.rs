@@ -156,17 +156,13 @@ mod tests {
             },
         ];
         let set = CompiledSet::build(files, "0.1.0-test", "grammar-digest");
-        let path = std::env::temp_dir()
-            .join(format!("expressir-set-{}.exscs", std::process::id()));
+        let path = std::env::temp_dir().join(format!("expressir-set-{}.exscs", std::process::id()));
         set.write_to(path.to_str().unwrap()).unwrap();
 
         let loaded = CompiledSet::read_from(path.to_str().unwrap()).unwrap();
         assert_eq!(loaded.header.set_digest, set.header.set_digest);
         assert_eq!(loaded.files.len(), 2);
-        assert_eq!(
-            loaded.files[0].wire().unwrap()["schemas"][0]["id"],
-            "a"
-        );
+        assert_eq!(loaded.files[0].wire().unwrap()["schemas"][0]["id"], "a");
 
         // Digest over the same pairs verifies; tampering does not.
         assert_eq!(
@@ -182,8 +178,14 @@ mod tests {
 
     #[test]
     fn set_digest_is_order_independent() {
-        let a = [("x".to_string(), "1".to_string()), ("y".to_string(), "2".to_string())];
-        let b = [("y".to_string(), "2".to_string()), ("x".to_string(), "1".to_string())];
+        let a = [
+            ("x".to_string(), "1".to_string()),
+            ("y".to_string(), "2".to_string()),
+        ];
+        let b = [
+            ("y".to_string(), "2".to_string()),
+            ("x".to_string(), "1".to_string()),
+        ];
         assert_eq!(set_digest(&a), set_digest(&b));
     }
 }
