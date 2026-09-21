@@ -340,7 +340,13 @@ pub fn unquote(s: String) -> String {
 
 pub fn rule_id_str_opt(arena: &AstArena, id_node: Option<&AstNode>) -> Option<String> {
     let id_node = id_node?;
-    let simple = hash_get(arena, id_node, "simpleId").or_else(|| Some(id_node.clone()))?;
-    let str_node = hash_get(arena, &simple, "str").or(Some(simple))?;
-    text(arena, &str_node)
+    // Structured path first (simpleId.str); fall back to nested_text
+    // which unwraps single-element arrays — the shape sequences take
+    // after the #83 splice of nested repetitions.
+    if let Some(simple) = hash_get(arena, id_node, "simpleId") {
+        if let Some(s) = hash_get(arena, &simple, "str").and_then(|s| text(arena, &s)) {
+            return Some(s);
+        }
+    }
+    crate::walk::nested_text(arena, id_node)
 }
