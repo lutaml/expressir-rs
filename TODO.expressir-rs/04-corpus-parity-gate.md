@@ -20,4 +20,4 @@ core path.
 
 ## Update 2026-09-19
 
-parser_core_parity_spec.rb in expressir PR #370 gates structural to_hash equality on every spec/syntax fixture plus failure-mode parity. Corpus result: 0 structural diffs; 12/17 byte-identical incl. remarks; 5 remark-attachment-only; 2 unparseable on both paths.
+parser_core_parity_spec.rb in expressir PR #370 gates structural to_hash equality on every spec/syntax fixture plus failure-mode parity. Corpus result: 0 structural diffs; 12/17 byte-identical incl. remarks; 5 remark-attachment-only; 2 unparsable on both paths.
