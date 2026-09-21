@@ -45,7 +45,7 @@ FILES.each do |rel|
   begin
     Expressir::Express::Parser.from_file(path)
   rescue Expressir::Express::Error
-    puts "   SKIP (unparseable fixture)"
+    puts "   SKIP (unparsable fixture)"
     next
   end
 

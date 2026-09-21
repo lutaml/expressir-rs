@@ -24,3 +24,7 @@ ast = "ast"
 expr = "expr"
 lexer = "lexer"
 serde = "serde"
+
+# Intentional: fixture comment data and the smrl-fullset artifact name
+eleemnts = "eleemnts"
+fullset = "fullset"
