@@ -45,17 +45,27 @@ pub fn parse_batch(
     }
     .clamp(1, jobs.len().max(1));
 
+    // The packrat parse recurses per grammar atom (parse_atom_uncached)
+    // and large ISO 10303 schemas exhaust Rust's 2 MiB default thread
+    // stack — observed as EXC_BAD_ACCESS on the guard page when batch
+    // workers run inside the Ruby process. Give workers a generous
+    // stack (16 MiB, matching a main-thread budget).
+    const WORKER_STACK_SIZE: usize = 16 * 1024 * 1024;
+
     let handles: Vec<_> = (0..worker_count)
         .map(|_| {
             let job_rx = Arc::clone(&job_rx);
             let res_tx = res_tx.clone();
-            thread::spawn(move || loop {
-                let job = { job_rx.lock().expect("jobs queue").recv() };
-                let Ok(job) = job else { break };
-                if res_tx.send(compile_one(job)).is_err() {
-                    break;
-                }
-            })
+            thread::Builder::new()
+                .stack_size(WORKER_STACK_SIZE)
+                .spawn(move || loop {
+                    let job = { job_rx.lock().expect("jobs queue").recv() };
+                    let Ok(job) = job else { break };
+                    if res_tx.send(compile_one(job)).is_err() {
+                        break;
+                    }
+                })
+                .expect("spawn batch worker")
         })
         .collect();
 
