@@ -97,6 +97,13 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4"
+      # The job only diffs the grammar dump; building the expressir
+      # gem's extension must not inherit the repo-wide -D warnings,
+      # which turn the pinned ext's deprecated-API calls into errors.
       - run: bundle install --jobs 4
+        env:
+          RUSTFLAGS: ""
       - run: bundle exec rake expressir:grammar:dump
+        env:
+          RUSTFLAGS: ""
       - run: git diff --exit-code assets/express-grammar.json
