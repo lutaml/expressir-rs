@@ -178,3 +178,19 @@ fn total_over_reads_the_list_of_entity_ref_level() {
         .collect();
     assert_eq!(ids, ["e", "f"]);
 }
+
+#[test]
+fn factor_keeps_the_exponentiation_operand() {
+    // factor = simpleFactor [ '**' simpleFactor ] — the rhs capture must
+    // become an EXPONENTIATION BinaryExpression, matching the Ruby
+    // build_factor (lutaml/expressir-rs#9).
+    let v = wire("SCHEMA s; CONSTANT c : BOOLEAN := 4 ** 2; END_CONSTANT; END_SCHEMA;\n");
+    let expr = &schema(&v)["constants"][0]["expression"];
+    assert_eq!(
+        expr["_class"],
+        "Expressir::Model::Expressions::BinaryExpression"
+    );
+    assert_eq!(expr["operator"], "EXPONENTIATION");
+    assert_eq!(expr["operand1"]["value"], "4");
+    assert_eq!(expr["operand2"]["value"], "2");
+}

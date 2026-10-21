@@ -132,10 +132,25 @@ pub(crate) fn simple_expression_json(arena: &AstArena, n: &AstNode) -> Option<Va
 }
 
 fn term_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
-    let first = hash_get(arena, n, "factor")
-        .and_then(|f| hash_get(arena, &f, "simpleFactor"))
-        .and_then(|sf| simple_factor_json(arena, &sf))?;
+    let first = hash_get(arena, n, "factor").and_then(|f| factor_json(arena, &f))?;
     Some(fold_rhs(arena, hash_get(arena, n, "rhs"), first, "factor"))
+}
+
+/// factor = simpleFactor [ '**' simpleFactor ] — the exponentiation
+/// operand becomes an EXPONENTIATION BinaryExpression (lutaml/expressir-rs#9).
+fn factor_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
+    let base = hash_get(arena, n, "simpleFactor").and_then(|sf| simple_factor_json(arena, &sf))?;
+    if let Some(rhs) = hash_get(arena, n, "rhs") {
+        let exponent = simple_factor_json(arena, &rhs)
+            .or_else(|| single_child(arena, &rhs).and_then(|c| simple_factor_json(arena, &c)))?;
+        return Some(binary(
+            CLASS_BINARY_EXPRESSION,
+            "EXPONENTIATION",
+            base,
+            exponent,
+        ));
+    }
+    Some(base)
 }
 
 /// Folds a `rhs` repetition (items of {operator, <kind>}) into
@@ -156,9 +171,7 @@ fn fold_rhs(arena: &AstArena, rhs: Option<AstNode>, first: Value, kind: &str) ->
             });
         let operand = match kind {
             "term" => hash_get(arena, &item, "term").and_then(|t| term_json(arena, &t)),
-            _ => hash_get(arena, &item, "factor")
-                .and_then(|f| hash_get(arena, &f, "simpleFactor"))
-                .and_then(|sf| simple_factor_json(arena, &sf)),
+            _ => hash_get(arena, &item, "factor").and_then(|f| factor_json(arena, &f)),
         };
         match (operator, operand) {
             (Some(op), Some(operand)) => {
