@@ -9,7 +9,9 @@ require "expressir"
 require "json"
 
 path, out_path = ARGV
-repo = Expressir::Express::Parser.from_file(path)
+repo = # The Ruby tier is the parity source of truth; the native ext embeds
+# its own (possibly older) grammar copy.
+Expressir::Express::Parser.from_file(path, use_native: false)
 
 def ids(collection)
   (collection || []).map(&:id).compact
