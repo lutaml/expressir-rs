@@ -8,6 +8,10 @@
 
 [workspace]
 dependencies_update = true
+# The house style (grammar:, tests:, docs:, model_json:) is not
+# conventional-commit typed, so bump-triggering commits are rare;
+# without this, grammar regens silently queue up unreleased.
+release_always = true
 git_release_enable = true
 
 [changelog]
