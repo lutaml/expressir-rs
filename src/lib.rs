@@ -13,6 +13,8 @@ pub mod compiled_set;
 pub mod extract;
 pub mod model;
 pub mod model_json;
+pub mod p21;
+pub mod wasm;
 pub mod walk;
 
 pub use extract::extract_file;
