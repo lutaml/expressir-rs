@@ -1,0 +1,14 @@
+SCHEMA entity_header_remark_schema;
+
+TYPE measures = ENUMERATION OF (newton, watt);
+END_TYPE;
+
+ENTITY qus -- stands for "quantity units", but need a very short name
+  q : physical_quantity;
+END_ENTITY;
+
+ENTITY joule; -- 4-26.a
+  q : qus;
+END_ENTITY;
+
+END_SCHEMA;

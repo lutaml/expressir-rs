@@ -37,3 +37,4 @@ fixture!(syntax, "syntax");
 fixture!(remark, "remark");
 fixture!(test_generic, "test-generic");
 fixture!(without_ending_newline, "without_ending_newline");
+fixture!(entity_header_remark, "entity_header_remark");

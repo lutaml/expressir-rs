@@ -1,0 +1,39 @@
+{
+  "schemas": [
+    {
+      "name": "entity_header_remark_schema",
+      "version": null,
+      "entities": [
+        {
+          "name": "qus",
+          "attributes": [
+            {
+              "name": "q"
+            }
+          ],
+          "whereRules": []
+        },
+        {
+          "name": "joule",
+          "attributes": [
+            {
+              "name": "q"
+            }
+          ],
+          "whereRules": []
+        }
+      ],
+      "types": [
+        {
+          "name": "measures",
+          "whereRules": []
+        }
+      ],
+      "functions": [],
+      "procedures": [],
+      "rules": [],
+      "subtypeConstraints": [],
+      "constants": []
+    }
+  ]
+}
