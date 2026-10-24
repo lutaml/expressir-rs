@@ -37,7 +37,12 @@ fn population_json(population: &p21::Population) -> PopulationJson {
             .map(|record| RecordJson {
                 id: record.id,
                 keyword: if record.complex {
-                    record.parts.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>().join("+")
+                    record
+                        .parts
+                        .iter()
+                        .map(|(k, _)| k.as_str())
+                        .collect::<Vec<_>>()
+                        .join("+")
                 } else {
                     record.keyword.clone()
                 },
@@ -61,8 +66,7 @@ fn population_json(population: &p21::Population) -> PopulationJson {
 /// inventory as JSON, or an error message.
 pub fn parse_population_json(source: String) -> Result<String, String> {
     let population = p21::parse_population(&source)?;
-    serde_json::to_string(&population_json(&population))
-        .map_err(|e| format!("serialize: {e}"))
+    serde_json::to_string(&population_json(&population)).map_err(|e| format!("serialize: {e}"))
 }
 
 /// Parses an EXPRESS schema; returns the declaration inventory
