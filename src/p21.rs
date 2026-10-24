@@ -185,7 +185,7 @@ impl P {
                 }
                 Token::EntityId(id) => {
                     self.expect_assign()?;
-                    if matches!(self.peek(), Some(Token::ExternalRef(target))) {
+                    if matches!(self.peek(), Some(Token::ExternalRef(_))) {
                         // an external reference, not a record (annex I)
                         let target = match self.next() {
                             Some(Token::ExternalRef(text)) => text,
