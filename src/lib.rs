@@ -14,8 +14,8 @@ pub mod extract;
 pub mod model;
 pub mod model_json;
 pub mod p21;
-pub mod wasm;
 pub mod walk;
+pub mod wasm;
 
 pub use extract::extract_file;
 pub use model::*;
