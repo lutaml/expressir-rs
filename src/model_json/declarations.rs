@@ -309,8 +309,15 @@ fn local_variables_json(arena: &AstArena, decl: &AstNode) -> Vec<Value> {
 }
 
 /// formalParameter groups share one type across all ids.
-fn formal_parameters_json(arena: &AstArena, host: &AstNode, list_key: &str) -> Vec<Value> {
-    let Some(list) = hash_get(arena, host, list_key) else {
+fn head_parameters_json(arena: &AstArena, host: &AstNode, list_key: &str) -> Vec<Value> {
+    // syntax 253/316: the list may sit directly on the head (old
+    // grammar) or inside the function_head_parameter_group capture
+    // (#558)
+    let list = hash_get(arena, host, list_key).or_else(|| {
+        hash_get(arena, host, "function_head_parameter_group")
+            .and_then(|group| hash_get(arena, &group, list_key))
+    });
+    let Some(list) = list else {
         return Vec::new();
     };
     children_of(arena, &list, "formalParameter")
@@ -752,7 +759,7 @@ fn function_json(arena: &AstArena, n: &AstNode) -> Value {
         put_list(
             &mut m,
             "parameters",
-            formal_parameters_json(arena, head, "listOf_formalParameter"),
+            head_parameters_json(arena, head, "listOf_formalParameter"),
         );
         put(
             &mut m,
@@ -779,7 +786,7 @@ fn procedure_json(arena: &AstArena, n: &AstNode) -> Value {
         put_list(
             &mut m,
             "parameters",
-            formal_parameters_json(arena, head, "listOf_procedureHeadParameter"),
+            head_parameters_json(arena, head, "listOf_procedureHeadParameter"),
         );
     }
     fill_algorithm(arena, &mut m, hash_get(arena, n, "algorithmHead"));
