@@ -309,6 +309,40 @@ fn local_variables_json(arena: &AstArena, decl: &AstNode) -> Vec<Value> {
 }
 
 /// formalParameter groups share one type across all ids.
+/// The head's parameter wire member: `null` when the source had no
+/// parentheses at all, `[]` for an explicit empty list, the id array
+/// otherwise (syntax 253/316, expressir#558).
+fn head_parameters_member(arena: &AstArena, head: &AstNode, list_key: &str) -> Value {
+    match hash_get(arena, head, "function_head_parameter_group") {
+        // an unmatched .maybe captures a nil (or empty) node — the
+        // source had no parentheses at all
+        Some(group) if is_absent_group(&group) => match hash_get(arena, head, list_key) {
+            Some(_) => Value::Array(head_parameters_json(arena, head, list_key)),
+            None => Value::Null,
+        },
+        Some(group) => match hash_get(arena, &group, list_key) {
+            Some(_) => Value::Array(head_parameters_json(arena, &group, list_key)),
+            None => Value::Array(Vec::new()),
+        },
+        None => match hash_get(arena, head, list_key) {
+            Some(_) => Value::Array(head_parameters_json(arena, head, list_key)),
+            None => Value::Null,
+        },
+    }
+}
+
+// True when the captured group holds nothing: a nil node or an empty
+// hash — the group's .maybe did not match.
+fn is_absent_group(group: &AstNode) -> bool {
+    match group {
+        AstNode::Nil => true,
+        // the unmatched capture stores the token text at the position
+        AstNode::StringRef { .. } => true,
+        AstNode::Hash { length, .. } => *length == 0,
+        _ => false,
+    }
+}
+
 fn head_parameters_json(arena: &AstArena, host: &AstNode, list_key: &str) -> Vec<Value> {
     // syntax 253/316: the list may sit directly on the head (old
     // grammar) or inside the function_head_parameter_group capture
@@ -756,10 +790,9 @@ fn function_json(arena: &AstArena, n: &AstNode) -> Value {
                 .and_then(|f| nested_text(arena, &f))
                 .map(Value::String),
         );
-        put_list(
-            &mut m,
-            "parameters",
-            head_parameters_json(arena, head, "listOf_formalParameter"),
+        m.insert(
+            "parameters".into(),
+            head_parameters_member(arena, head, "listOf_formalParameter"),
         );
         put(
             &mut m,
@@ -783,10 +816,9 @@ fn procedure_json(arena: &AstArena, n: &AstNode) -> Value {
                 .and_then(|p| nested_text(arena, &p))
                 .map(Value::String),
         );
-        put_list(
-            &mut m,
-            "parameters",
-            head_parameters_json(arena, head, "listOf_procedureHeadParameter"),
+        m.insert(
+            "parameters".into(),
+            head_parameters_member(arena, head, "listOf_procedureHeadParameter"),
         );
     }
     fill_algorithm(arena, &mut m, hash_get(arena, n, "algorithmHead"));

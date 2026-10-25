@@ -148,6 +148,18 @@ fn unique_rules_drop_phantom_fragments() {
 }
 
 #[test]
+fn empty_parameter_lists_wire_null_versus_empty() {
+    // syntax 253/316: `f()` (explicit empty parens) wires [] while a
+    // declaration without parentheses wires null — the Ruby side
+    // round trips the distinction (expressir#558).
+    let src = "SCHEMA s;\nFUNCTION f() : INTEGER;\nRETURN (1);\nEND_FUNCTION;\nFUNCTION g : INTEGER;\nRETURN (1);\nEND_FUNCTION;\nEND_SCHEMA;\n";
+    let v = wire(src);
+    let functions = &schema(&v)["functions"];
+    assert_eq!(functions[0]["parameters"], serde_json::json!([]));
+    assert_eq!(functions[1]["parameters"], serde_json::json!(null));
+}
+
+#[test]
 fn generic_types_carry_their_labels() {
     // GENERIC : label / GENERIC_ENTITY : label — ISO 10303-11 9.5.3.2
     // (GH-339).
