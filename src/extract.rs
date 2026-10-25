@@ -232,11 +232,17 @@ fn extract_function(arena: &AstArena, node: &AstNode) -> FunctionDecl {
             .and_then(|h| hash_get(arena, h, "functionId"))
             .as_ref(),
     );
-    let parameters = head
-        .as_ref()
-        .and_then(|h| hash_get(arena, h, "listOf_formalParameter"))
-        .map(|params| collect_parameter_ids(arena, &params))
-        .unwrap_or_default();
+    // syntax 253: the list is optional within the parentheses; the
+    // group capture is absent when the source had no parentheses at
+    // all, present-but-empty for an explicit `f()`
+    let parameters = head.as_ref().and_then(|h| {
+        hash_get(arena, h, "listOf_formalParameter")
+            .or_else(|| {
+                hash_get(arena, h, "function_head_parameter_group")
+                    .and_then(|g| hash_get(arena, &g, "listOf_formalParameter"))
+            })
+            .map(|params| collect_parameter_ids(arena, &params))
+    });
     FunctionDecl { name, parameters }
 }
 
@@ -248,11 +254,15 @@ fn extract_procedure(arena: &AstArena, node: &AstNode) -> ProcedureDecl {
             .and_then(|h| hash_get(arena, h, "procedureId"))
             .as_ref(),
     );
-    let parameters = head
-        .as_ref()
-        .and_then(|h| hash_get(arena, h, "listOf_procedureHeadParameter"))
-        .map(|params| collect_parameter_ids(arena, &params))
-        .unwrap_or_default();
+    // syntax 316: same optional-list-within-parens shape
+    let parameters = head.as_ref().and_then(|h| {
+        hash_get(arena, h, "listOf_procedureHeadParameter")
+            .or_else(|| {
+                hash_get(arena, h, "function_head_parameter_group")
+                    .and_then(|g| hash_get(arena, &g, "listOf_procedureHeadParameter"))
+            })
+            .map(|params| collect_parameter_ids(arena, &params))
+    });
     ProcedureDecl { name, parameters }
 }
 
