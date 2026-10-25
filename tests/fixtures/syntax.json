@@ -262,7 +262,7 @@
       "functions": [
         {
           "name": "empty_function",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "parameter_function",
@@ -286,45 +286,45 @@
         },
         {
           "name": "type_function",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "constant_function",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "multiple_constant_function",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "variable_function",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "multiple_variable_function",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "multiple_shorthand_variable_function",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "variable_expression_function",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "multiple_variable_expression_function",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "multiple_shorthand_variable_expression_function",
-          "parameters": []
+          "parameters": null
         }
       ],
       "procedures": [
         {
           "name": "empty_procedure",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "parameter_procedure",
@@ -375,55 +375,55 @@
         },
         {
           "name": "type_procedure",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "constant_procedure",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "multiple_constant_procedure",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "variable_procedure",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "multiple_variable_procedure",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "multiple_shorthand_variable_procedure",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "variable_expression_procedure",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "multiple_variable_expression_procedure",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "multiple_shorthand_variable_expression_procedure",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "statement_procedure",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "statements",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "types",
-          "parameters": []
+          "parameters": null
         },
         {
           "name": "expressions",
-          "parameters": []
+          "parameters": null
         }
       ],
       "rules": [

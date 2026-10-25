@@ -63,14 +63,14 @@ pub struct TypeDecl {
 #[serde(rename_all = "camelCase")]
 pub struct FunctionDecl {
     pub name: String,
-    pub parameters: Vec<String>,
+    pub parameters: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcedureDecl {
     pub name: String,
-    pub parameters: Vec<String>,
+    pub parameters: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
