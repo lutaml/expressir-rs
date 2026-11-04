@@ -492,10 +492,11 @@ pub fn find_by_exact_path_mut<'a>(root: &'a mut Value, path: &str) -> Option<&'a
 
 /// Ruby `add_remark`: blank bodies drop; the plain `remarks` array is
 /// written only on HasRemarks classes, but the untagged_remarks
-/// RemarkInfo entry is written on EVERY model element (tag == nil).
+/// RemarkInfo entry is written on EVERY model element ONLY for untagged
+/// remarks — a tagged target keeps the bare-text store alone.
 /// The Ruby RemarkInfo wire map carries text/format/tag/placement/region.
-pub fn add_remark_to(node: &mut Value, text: &str) -> bool {
-    add_remark_tagged(node, text, None, None, None, None, None)
+pub fn add_remark_to(node: &mut Value, text: &str, tag: Option<&str>) -> bool {
+    add_remark_tagged(node, text, tag, None, None, None, None)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -591,7 +592,7 @@ mod wire_tests {
         let mut wire = demo_wire();
         {
             let target = find_by_exact_path_mut(&mut wire, "demo.thing.name").expect("resolves");
-            assert!(add_remark_to(target, "a remark on the attribute"));
+            assert!(add_remark_to(target, "a remark on the attribute", None));
         }
         let attrs = wire
             .pointer("/schemas/0/entities/0/attributes")
@@ -612,10 +613,10 @@ mod wire_tests {
         let mut wire = demo_wire();
         let schema = find_by_exact_path_mut(&mut wire, "demo").expect("resolves");
         // Blank remark bodies are dropped (GH-363 behavior).
-        assert!(!add_remark_to(schema, "   "));
+        assert!(!add_remark_to(schema, "   ", None));
         // The ExpFile wrapper carries untagged_remarks like any model
         // element (Ruby supports_remarks? = ModelElement).
-        assert!(add_remark_to(&mut wire, "nope"));
+        assert!(add_remark_to(&mut wire, "nope", None));
     }
 }
 
@@ -1172,7 +1173,7 @@ pub fn attach_tagged_remarks(root: &mut Value, source: &str) -> Vec<usize> {
 
         if let Some(target_ptr) = target {
             if let Some(target_node) = root.pointer_mut(&target_ptr) {
-                if add_remark_to(target_node, &remark.text) {
+                if add_remark_to(target_node, &remark.text, remark.tag.as_deref()) {
                     attached_spans.push(remark.position);
                 }
             }
@@ -1713,7 +1714,7 @@ fn collect(
 
 /// The per-class collection registry (`collection_attributes`
 /// declarations — the single source of truth the Ruby walkers share).
-fn collection_registry(class: &str) -> &'static [&'static str] {
+pub fn collection_registry(class: &str) -> &'static [&'static str] {
     match class {
         "ExpFile" => &["schemas"],
         "Declarations::Schema" => &[
@@ -2194,7 +2195,8 @@ fn closing_region_target(
         return (None, None, None);
     };
     let map = active_scope_map(lines);
-    let Some(active) = map.get(keyword_line).copied().flatten() else {
+    // The map is 0-indexed by line: entry k holds line k+1.
+    let Some(active) = map.get(keyword_line - 1).copied().flatten() else {
         return (None, None, None);
     };
     if active.0 != owner_class {
