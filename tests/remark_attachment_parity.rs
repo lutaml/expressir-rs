@@ -59,7 +59,8 @@ summary = lambda do |node, out|
         "text" => u.text,
         "format" => u.format,
         "placement" => u.placement,
-        "region" => u.region
+        "region" => u.region,
+        "source_offset" => u.source_offset
       }
     end
   end
@@ -246,6 +247,7 @@ fn rust_summary(wire: &Value) -> Value {
                                 "format": u.get("format"),
                                 "placement": u.get("placement"),
                                 "region": u.get("region"),
+                                "source_offset": u.get("source_offset"),
                             }));
                     }
                 }
