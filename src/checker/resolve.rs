@@ -242,9 +242,7 @@ impl<'a> Ctx<'a> {
                 .and_then(|rest| rest.split_once("/schemas/"))
                 .map(|(_, rest)| rest)
         })?;
-        rest.parse::<usize>()
-            .ok()
-            .filter(|&i| i < self.schemas.len())
+        rest.parse::<usize>().ok().filter(|&i| i < self.schemas.len())
     }
 
     fn schema_children_by_id(&mut self, schema: usize) -> HashMap<String, String> {
