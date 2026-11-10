@@ -32,8 +32,14 @@ impl ScopeKind {
         ];
         let trimmed = line.trim_start();
         for (keyword, kind) in KEYWORDS {
+            // Byte-wise prefix compare: a line may begin with a
+            // multi-byte character, and slicing `trimmed[..n]` would
+            // panic inside it (expressir#616). An ASCII keyword can
+            // only match an ASCII prefix, so when the bytes match,
+            // keyword.len() is a char boundary and the rest slice is
+            // safe.
             if trimmed.len() >= keyword.len()
-                && trimmed[..keyword.len()].eq_ignore_ascii_case(keyword)
+                && trimmed.as_bytes()[..keyword.len()].eq_ignore_ascii_case(keyword.as_bytes())
             {
                 let rest = &trimmed[keyword.len()..];
                 // \s+ then the name (\w+ to end of the word)
@@ -189,7 +195,10 @@ pub fn is_ip_tag(tag: &str) -> bool {
 fn where_label(line: &str) -> Option<&str> {
     const KEYWORD: &str = "WHERE";
     let trimmed = line.trim_start();
-    if trimmed.len() < KEYWORD.len() || !trimmed[..KEYWORD.len()].eq_ignore_ascii_case(KEYWORD) {
+    // Byte-wise prefix compare — see ScopeKind::open_matches (#616).
+    if trimmed.len() < KEYWORD.len()
+        || !trimmed.as_bytes()[..KEYWORD.len()].eq_ignore_ascii_case(KEYWORD.as_bytes())
+    {
         return None;
     }
     let rest = &trimmed[KEYWORD.len()..];
@@ -251,6 +260,18 @@ mod tests {
         let map = build_scope_map(source);
         assert_eq!(containing_scope_name(&map, 1), Some("a"));
         assert_eq!(containing_scope_name(&map, 2), Some("b"));
+    }
+
+    #[test]
+    fn scope_walk_survives_lines_starting_multibyte() {
+        // expressir#616: a remark line whose first non-space character is
+        // multi-byte (Japanese text inside a `// ...` remark line) must
+        // not panic the keyword prefix compare — `trimmed[..keyword.len()]`
+        // sliced inside a code point. The byte-wise compare matches only
+        // ASCII keywords on ASCII prefixes.
+        let source = "SCHEMA a;\n  ENTITY b;\n  (*\"a.b\" text\n// ↑先行して作業中\nmore text *)\n  END_ENTITY;\nEND_SCHEMA;\n";
+        let map = build_scope_map(source);
+        assert_eq!(containing_scope_name(&map, 4), Some("b"));
     }
 
     #[test]
