@@ -837,6 +837,12 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_remark_item(&self, ptr: &str, node: &Value) -> String {
+        // no_remarks strips everything the RemarkFormatter would emit —
+        // the Ruby formatter guards every emission point (remark_formatter.rb),
+        // and the lane-parity fuzz (expressir#624) catches the leak.
+        if self.no_remarks {
+            return String::new();
+        }
         let remarks: Vec<String> = arr(node, "remarks")
             .iter()
             .filter_map(|r| r.as_str().map(str::to_string))
