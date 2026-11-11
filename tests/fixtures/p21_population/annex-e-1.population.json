@@ -1,0 +1,35 @@
+{
+  "anchors": [],
+  "file_schemas": [
+    "LONGA",
+    "LONGB"
+  ],
+  "records": [
+    {
+      "complex": false,
+      "id": 1,
+      "keyword": "A"
+    },
+    {
+      "complex": false,
+      "id": 2,
+      "keyword": "B"
+    },
+    {
+      "complex": false,
+      "id": 3,
+      "keyword": "B"
+    },
+    {
+      "complex": false,
+      "id": 4,
+      "keyword": "C"
+    },
+    {
+      "complex": false,
+      "id": 5,
+      "keyword": "C"
+    }
+  ],
+  "references": []
+}

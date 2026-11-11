@@ -6,7 +6,7 @@
 
 use serde::Serialize;
 
-use crate::p21;
+use crate::population;
 
 #[derive(Serialize)]
 struct PopulationJson {
@@ -29,7 +29,7 @@ struct VerdictJson {
     errors: Vec<String>,
 }
 
-fn population_json(population: &p21::Population) -> PopulationJson {
+fn population_json(population: &population::Population) -> PopulationJson {
     PopulationJson {
         file_schemas: population.file_schemas.clone(),
         records: population
@@ -38,12 +38,7 @@ fn population_json(population: &p21::Population) -> PopulationJson {
             .map(|record| RecordJson {
                 id: record.id,
                 keyword: if record.complex {
-                    record
-                        .parts
-                        .iter()
-                        .map(|(k, _)| k.as_str())
-                        .collect::<Vec<_>>()
-                        .join("+")
+                    record.parts.join("+")
                 } else {
                     record.keyword.clone()
                 },
@@ -66,7 +61,7 @@ fn population_json(population: &p21::Population) -> PopulationJson {
 /// Parses an ISO-10303-21 population; returns the structural
 /// inventory as JSON, or an error message.
 pub fn parse_population_json(source: String) -> Result<String, String> {
-    let population = p21::parse_population(&source)?;
+    let population = population::parse_population(&source)?;
     serde_json::to_string(&population_json(&population)).map_err(|e| format!("serialize: {e}"))
 }
 
@@ -126,7 +121,7 @@ pub fn parse_schema_json(source: String) -> Result<String, String> {
 pub fn validate_population_json(entities_json: String, source: String) -> Result<String, String> {
     let entities: Vec<String> =
         serde_json::from_str(&entities_json).map_err(|e| format!("entities: {e}"))?;
-    let population = p21::parse_population(&source)?;
+    let population = population::parse_population(&source)?;
     let verdict = population.validate(&entities);
     serde_json::to_string(&VerdictJson {
         valid: verdict.valid,

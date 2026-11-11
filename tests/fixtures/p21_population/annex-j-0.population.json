@@ -1,0 +1,14 @@
+{
+  "anchors": [],
+  "file_schemas": [
+    "AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF"
+  ],
+  "records": [
+    {
+      "complex": true,
+      "id": 10,
+      "keyword": "GEOMETRIC_REPRESENTATION_CONTEXT+GLOBAL_UNIT_ASSIGNED_CONTEXT+REPRESENTATION_CONTEXT"
+    }
+  ],
+  "references": []
+}

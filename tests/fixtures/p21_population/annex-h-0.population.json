@@ -1,0 +1,74 @@
+{
+  "anchors": [],
+  "file_schemas": [
+    "EXAMPLE_GEOMETRY"
+  ],
+  "records": [
+    {
+      "complex": false,
+      "id": 1,
+      "keyword": "CPT"
+    },
+    {
+      "complex": false,
+      "id": 2,
+      "keyword": "CPT"
+    },
+    {
+      "complex": false,
+      "id": 3,
+      "keyword": "CPT"
+    },
+    {
+      "complex": false,
+      "id": 11,
+      "keyword": "VX"
+    },
+    {
+      "complex": false,
+      "id": 12,
+      "keyword": "VX"
+    },
+    {
+      "complex": false,
+      "id": 13,
+      "keyword": "VX"
+    },
+    {
+      "complex": false,
+      "id": 16,
+      "keyword": "ED"
+    },
+    {
+      "complex": false,
+      "id": 17,
+      "keyword": "ED"
+    },
+    {
+      "complex": false,
+      "id": 18,
+      "keyword": "ED"
+    },
+    {
+      "complex": false,
+      "id": 21,
+      "keyword": "ED_STRC"
+    },
+    {
+      "complex": false,
+      "id": 22,
+      "keyword": "ED_STRC"
+    },
+    {
+      "complex": false,
+      "id": 23,
+      "keyword": "ED_STRC"
+    },
+    {
+      "complex": false,
+      "id": 24,
+      "keyword": "ED_LOOP"
+    }
+  ],
+  "references": []
+}
