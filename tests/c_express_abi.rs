@@ -42,40 +42,42 @@ fn c_abi_round_trips_the_core_surfaces() {
         let ptr = abi::expr_parse_schema(c.as_ptr());
         if ptr.is_null() {
             panic!(
-                "parse_schema failed: {:?}",
-                std::fs::read_to_string("/tmp/abi7.txt")
-                    .unwrap_or_default()
-                    .len()
+                "parse_schema failed: {}",
+                unsafe { CStr::from_ptr(abi::expr_last_error()) }.to_string_lossy()
             );
         }
         take(ptr)
     };
     assert!(wire.contains("\"schemas\""), "wire json: {wire}");
 
-    let attached =
-        take(unsafe { abi::expr_attach_remarks(feed(&wire).as_ptr(), feed(SCHEMA).as_ptr(), 0) });
+    let attached = take(abi::expr_attach_remarks(
+        feed(&wire).as_ptr(),
+        feed(SCHEMA).as_ptr(),
+        0,
+    ));
     // The tagged remark lands in the attached wire's remark store;
     // whether (and how) it renders is the formatter-parity suite's
     // contract.
     assert!(attached.contains("the note"), "attached: {attached}");
 
-    let text = take(unsafe { abi::expr_format(feed(&attached).as_ptr(), 0) });
+    let text = take(abi::expr_format(feed(&attached).as_ptr(), 0));
     assert!(text.contains("SCHEMA demo;"), "format: {text}");
-    let stripped = take(unsafe { abi::expr_format(feed(&attached).as_ptr(), 1) });
+    let stripped = take(abi::expr_format(feed(&attached).as_ptr(), 1));
     assert!(stripped.contains("END_ENTITY;"), "stripped: {stripped}");
 
-    let findings = take(unsafe { abi::expr_check(feed(&wire).as_ptr(), std::ptr::null()) });
+    let findings = take(abi::expr_check(feed(&wire).as_ptr(), std::ptr::null()));
     assert!(findings.starts_with('['), "check: {findings}");
 }
 
 #[test]
 fn c_abi_population_surfaces() {
-    let population = take(unsafe { abi::expr_parse_population(feed(POPULATION).as_ptr()) });
+    let population = take(abi::expr_parse_population(feed(POPULATION).as_ptr()));
     assert!(population.contains("E"), "population: {population}");
     let entities = "[\"E\"]";
-    let verdict = take(unsafe {
-        abi::expr_validate_population(feed(entities).as_ptr(), feed(POPULATION).as_ptr())
-    });
+    let verdict = take(abi::expr_validate_population(
+        feed(entities).as_ptr(),
+        feed(POPULATION).as_ptr(),
+    ));
     assert!(!verdict.is_empty(), "validate: {verdict}");
 }
 
