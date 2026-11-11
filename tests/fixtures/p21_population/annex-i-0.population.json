@@ -1,0 +1,106 @@
+{
+  "anchors": [
+    [
+      "POINT_1",
+      "#1"
+    ],
+    [
+      "POINT_2",
+      "#2"
+    ],
+    [
+      "POINT_3",
+      "#3"
+    ],
+    [
+      "POINT_4",
+      "#4"
+    ],
+    [
+      "POINT_5",
+      "#5"
+    ],
+    [
+      "POINT_6",
+      "$"
+    ]
+  ],
+  "file_schemas": [
+    "EXAMPLE_GEOMETRY"
+  ],
+  "records": [
+    {
+      "complex": false,
+      "id": 1,
+      "keyword": "CPT"
+    },
+    {
+      "complex": false,
+      "id": 2,
+      "keyword": "CPT"
+    },
+    {
+      "complex": false,
+      "id": 3,
+      "keyword": "CPT"
+    },
+    {
+      "complex": false,
+      "id": 4,
+      "keyword": "CPT"
+    },
+    {
+      "complex": false,
+      "id": 5,
+      "keyword": "CPT"
+    },
+    {
+      "complex": false,
+      "id": 12,
+      "keyword": "VX"
+    },
+    {
+      "complex": false,
+      "id": 13,
+      "keyword": "VX"
+    },
+    {
+      "complex": false,
+      "id": 16,
+      "keyword": "ED"
+    },
+    {
+      "complex": false,
+      "id": 17,
+      "keyword": "ED"
+    },
+    {
+      "complex": false,
+      "id": 18,
+      "keyword": "ED"
+    },
+    {
+      "complex": false,
+      "id": 21,
+      "keyword": "ED_STRC"
+    },
+    {
+      "complex": false,
+      "id": 22,
+      "keyword": "ED_STRC"
+    },
+    {
+      "complex": false,
+      "id": 23,
+      "keyword": "ED_STRC"
+    },
+    {
+      "complex": false,
+      "id": 24,
+      "keyword": "ED_LOOP"
+    }
+  ],
+  "references": [
+    "#11 = <ftp://ftp.acme.net/second_file.stp#vertex_1>"
+  ]
+}

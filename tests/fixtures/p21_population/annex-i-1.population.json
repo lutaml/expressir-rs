@@ -1,0 +1,21 @@
+{
+  "anchors": [
+    [
+      "vertex_1",
+      "#11"
+    ]
+  ],
+  "file_schemas": [
+    "EXAMPLE_GEOMETRY"
+  ],
+  "records": [
+    {
+      "complex": false,
+      "id": 11,
+      "keyword": "VX"
+    }
+  ],
+  "references": [
+    "#1 = <http://www.giant.com/first_file.stp#POINT_1>"
+  ]
+}
