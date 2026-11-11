@@ -1,6 +1,6 @@
 [package]
 name = "expressir-rs"
-version = "0.1.0"
+version = "0.1.35"
 edition = "2021"
 rust-version = "1.86"
 description = "Rust core for Expressir: EXPRESS schema parsing and model building on parsanol"
@@ -9,9 +9,6 @@ license = "MIT"
 repository = "https://github.com/lutaml/expressir-rs"
 keywords = ["express", "iso-10303", "step", "parser", "lutaml"]
 categories = ["parser-implementations"]
-# Consumed through a git dependency by expressir's native extension;
-# crates.io publishing stays disabled by design.
-publish = false
 
 [dependencies]
 parsanol = { version = "=0.20.9" }

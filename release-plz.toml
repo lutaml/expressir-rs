@@ -1,9 +1,10 @@
 # Release-plz configuration for expressir-rs
 #
-# Automated versioning and changelog generation on every push to main.
-# The crate is consumed via git dependency (expressir's native ext), so
-# crates.io publishing stays disabled; releases are version bumps,
-# changelogs, and git tags.
+# Automated versioning, changelog generation, and crates.io publishing on
+# every push to main (expressir#619): the crate is consumed by expressir's
+# native ext as a version dependency, and CARGO_REGISTRY_TOKEN in the
+# release workflow lets release-plz publish after the release PR merges.
+# One-time owner step: register the crates.io token secret on the repo.
 # See: https://release-plz.dev/docs/config
 
 [workspace]
