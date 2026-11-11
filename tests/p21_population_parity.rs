@@ -56,13 +56,15 @@ fn inventory_json(source: &str) -> Value {
 fn the_artifact_builder_matches_the_retired_parser_byte_for_byte() {
     for (stem, source) in CORPUS {
         let expected: Value = serde_json::from_str(
-            &std::fs::read_to_string(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/fixtures/p21_population/",
+            &std::fs::read_to_string(
+                concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/fixtures/p21_population/",
+                )
+                .to_owned()
+                    + stem
+                    + ".population.json",
             )
-            .to_owned()
-                + stem
-                + ".population.json")
             .expect("baked expected inventory"),
         )
         .expect("expected inventory is valid JSON");
