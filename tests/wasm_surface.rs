@@ -17,14 +17,19 @@ fn schema_parse_inventories_declarations() {
 }
 
 #[test]
+fn wire_schema_matches_the_c_abi_shape() {
+    let json = wasm::wire_schema_json(SCHEMA.to_string()).expect("wire parse");
+    assert!(
+        json.contains("\"_class\":\"Expressir::Model::ExpFile\""),
+        "model wire: {json}"
+    );
+}
+
+#[test]
 fn attach_format_check_round_trip() {
-    let wire = wasm::parse_schema_json(SCHEMA.to_string()).expect("schema parse");
-    // The wire from parse_schema_json is a declaration inventory, not
-    // the model-hash wire; build the model-hash wire via the public
-    // ParsedTree path instead.
-    let tree = expressir_rs::ParsedTree::parse(SCHEMA).expect("parse");
-    let wire = tree.to_model_json("source.exp").expect("wire");
-    let wire_json = serde_json::to_string(&wire).expect("serialize");
+    // The model-hash wire — what attach/format/check consume — comes
+    // from the wire_schema op (the C ABI's expr_parse_schema shape).
+    let wire_json = wasm::wire_schema_json(SCHEMA.to_string()).expect("wire parse");
 
     let attached =
         wasm::attach_remarks_json(wire_json.clone(), SCHEMA.to_string(), false).expect("attach");

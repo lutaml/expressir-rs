@@ -70,6 +70,18 @@ pub fn parse_population_json(source: String) -> Result<String, String> {
     serde_json::to_string(&population_json(&population)).map_err(|e| format!("serialize: {e}"))
 }
 
+/// Parses an EXPRESS schema into the model-hash wire JSON — the same
+/// shape `expr_parse_schema` (the C ABI) returns, and the input
+/// attach/format/check consume. The declaration inventory below is
+/// the browser-oriented summary view.
+pub fn wire_schema_json(source: String) -> Result<String, String> {
+    let tree = crate::ParsedTree::parse(&source).map_err(|e| format!("{e:?}"))?;
+    let value = tree
+        .to_model_json("source.exp")
+        .map_err(|err| format!("model json: {err:?}"))?;
+    serde_json::to_string(&value).map_err(|e| format!("serialize: {e}"))
+}
+
 /// Parses an EXPRESS schema; returns the declaration inventory
 /// (schema name + entity names + per-entity attribute names) as JSON.
 pub fn parse_schema_json(source: String) -> Result<String, String> {
@@ -172,6 +184,11 @@ mod bindings {
     #[wasm_bindgen]
     pub fn parse_schema(source: String) -> Result<String, String> {
         super::parse_schema_json(source)
+    }
+
+    #[wasm_bindgen]
+    pub fn wire_schema(source: String) -> Result<String, String> {
+        super::wire_schema_json(source)
     }
 
     #[wasm_bindgen]
