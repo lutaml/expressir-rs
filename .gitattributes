@@ -1,0 +1,5 @@
+# Byte-exact fixtures: checksums attest the producer's exact bytes, so
+# checkout line-ending conversion must never touch them (the windows
+# runners' CRLF checkout rejected the P21 artifact's seal).
+assets/p21/*.artifact.json -text
+assets/p21/fixtures/*.tree.json -text
