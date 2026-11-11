@@ -1,0 +1,185 @@
+## ISO 10303-21 exchange structure (expressir#625).
+##
+## Single source of truth for P21 parsing across engines: the rust
+## core loads the compiled artifact (assets/p21/iso-10303-21.artifact.json),
+## and the ruby `Expressir::P21` pipeline consumes the same parse tree
+## in place of its DSL grammar (which this file mirrors 1:1 — the
+## capture names are the Builder's contract).
+##
+## Reference: ISO 10303-21 (the exchange structure; clauses 8-14,
+## annexes E/H/I/J). Supported subset: the header FILE_* entities,
+## ANCHOR and REFERENCE sections, named data sections, and
+## simple/complex/external-reference instances with lists, typed
+## parameters, references, enumerations, binaries, strings, unset ($)
+## and derived (*).
+
+grammar Iso1030321 version "1.0.0" {
+
+  ## Whitespace and /* */ comments (clause 5.2).
+  ws = *( %x20 / %x09 / %x0D / %x0A / comment )
+
+  comment = {
+    "/*" *( !"*/" ANY ) "*/"
+  }
+
+  keyword = {
+    [ "!" ] 1*( %x41-5A / %x61-7A / %x30-39 / %x5F )
+  }
+
+  entity_instance_name = {
+    "#" 1*%x30-39
+  }
+
+  constant_reference = {
+    "#" ( %x41-5A / %x61-7A / %x5F ) *( %x41-5A / %x61-7A / %x30-39 / %x5F )
+  }
+
+  external_anchor = {
+    "<" *( !">" ANY ) ">"
+  }
+
+  ## ISO 10303-21: doubled quotes are escaped quotes.
+  string_literal = {
+    "'" *( ( !"'" ANY ) / "''" ) "'"
+  }
+
+  ## The double-quote terminal is %x22: a bare "'" breaks the lexer's
+  ## quote pairing.
+  binary_literal = {
+    %x22 *( %x30-39 / %x41-46 / %x61-66 ) %x22
+  }
+
+  enumeration = {
+    "." 1*( %x41-5A / %x61-7A / %x30-39 / %x5F ) "."
+  }
+
+  unset = {
+    "$"
+  }
+
+  derived = {
+    "*"
+  }
+
+  number_literal = {
+    [ ( %x2B / %x2D ) ] 1*%x30-39
+      [ "." 1*%x30-39 ]
+      [ ( %x45 / %x65 ) [ ( %x2B / %x2D ) ] 1*%x30-39 ]
+  }
+
+  parameter = {
+    ( typed_parameter as typed_parameter ) /
+    ( parameter_list as parameter_list ) /
+    ( entity_instance_name as entity_instance_name ) /
+    ( constant_reference as constant_reference ) /
+    ( external_anchor as external_anchor ) /
+    ( number_literal as number_literal ) /
+    ( enumeration as enumeration ) /
+    ( binary_literal as binary_literal ) /
+    ( string_literal as string_literal ) /
+    ( unset as unset ) /
+    ( derived as derived )
+  }
+
+  parameter_list = {
+    "(" ws
+      [ parameter as parameter
+        *( "," ws parameter as parameter )
+      ]
+      ")" ws
+  }
+
+  typed_parameter = {
+    keyword as keyword ws parameter_list as parameter_list
+  }
+
+  simple_record = {
+    keyword as keyword ws parameter_list as parameter_list
+  }
+
+  subsuper_record = {
+    "(" ws 1*( simple_record as simple_record ) ")" ws
+  }
+
+  simple_entity_instance = {
+    ( entity_instance_name as entity_instance_name ws
+      "=" ws simple_record as simple_record
+      ";" ws ) as simple_entity_instance
+  }
+
+  complex_entity_instance = {
+    ( entity_instance_name as entity_instance_name ws
+      "=" ws subsuper_record as subsuper_record
+      ";" ws ) as complex_entity_instance
+  }
+
+  external_reference_instance = {
+    ( entity_instance_name as entity_instance_name ws
+      "=" ws external_anchor as external_anchor
+      ";" ws ) as external_reference_instance
+  }
+
+  entity_instance = {
+    complex_entity_instance / simple_entity_instance / external_reference_instance
+  }
+
+  header_entity = {
+    simple_record as simple_record ";" ws
+  }
+
+  ## ISO 10303-21:2016 clause 14: two signature lines open the header
+  ## of a signed exchange structure.
+  signature_lines = *( ".." ws )
+
+  header_section = {
+    "HEADER;" ws signature_lines
+      1*( header_entity ) as header_entity
+      "ENDSEC;" ws
+  }
+
+  data_section = {
+    ( "DATA" ws
+      [ parameter_list as section_tag ] ";" ws
+      *( entity_instance ) as instance_list
+      "ENDSEC;" ws ) as data_section
+  }
+
+  ## ISO 10303-21:2016 clause 9: the anchor section binds labels to
+  ## local instances (a promissory anchor binds the unset value).
+  anchor_entry = {
+    ( "<" !">" *( %x41-5A / %x61-7A / %x30-39 / %x5F / %x2E / %x2F / %x3A / %x3F / %x3D / %x26 / %x25 / %x2D ) as anchor_label
+      ">" ws "=" ws
+      ( ( entity_instance_name as entity_instance_name ) / ( unset as unset ) )
+      ";" ws ) as anchor_entry
+  }
+
+  anchor_section = {
+    ( "ANCHOR;" ws *( anchor_entry ) as anchor_entry "ENDSEC;" ws ) as anchor_section
+  }
+
+  ## ISO 10303-21:2016 clause 10: the reference section binds a local
+  ## instance name to an external anchor.
+  reference_section = {
+    ( "REFERENCE;" ws *( entity_instance ) as instance_list "ENDSEC;" ws ) as reference_section
+  }
+
+  entry exchange_structure: exchange_structure
+
+      ## The section rules carry their own capture (mirroring the DSL),
+      ## so the call sites stay bare — an extra `as` here would
+      ## double-wrap the subtree.
+      exchange_structure = {
+        ws "ISO-10303-21;" ws
+          header_section as header_section
+          [ anchor_section ]
+          [ reference_section ]
+          1*( data_section ) as data_section
+          "END-ISO-10303-21;" ws
+      }
+
+  test exchange_structure {
+    accept "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('a'),'b');\nFILE_NAME('n');\nFILE_SCHEMA(('S'));\nENDSEC;\nDATA;\n#1=E('v');\n#2=(A(1)B(2));\nENDSEC;\nEND-ISO-10303-21;\n"
+    accept "ISO-10303-21;\nHEADER;\nFILE_NAME('n');\nENDSEC;\nANCHOR;\n<lbl>=#1;\nENDSEC;\nDATA;\n#1=E('v');\nENDSEC;\nEND-ISO-10303-21;\n"
+    reject "ISO-10303-21;\nHEADER;\nFILE_NAME('n');\nENDSEC;\nDATA;\n#1=E('v');\n"
+  }
+}

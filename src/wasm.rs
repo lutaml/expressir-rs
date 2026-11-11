@@ -1,7 +1,8 @@
-//! The WebAssembly surface (TODO.compat/08): the Part 21 structural
-//! parse + validation behind wasm-bindgen, JSON in and out, for
-//! schema + population checks in browser/Node. Compiled with
-//! `wasm-pack build --target nodejs` (cfg wasm32 only).
+//! The WebAssembly surface: the same core operations the C ABI
+//! exposes (expressir#620) — schema parse, remark attach, format,
+//! check, plus the Part 21 structural parse + validation — JSON in
+//! and out, for schema + population checks in browser/Node. Compiled
+//! with `wasm-pack build --target nodejs` (cfg wasm32 only).
 
 use serde::Serialize;
 
@@ -122,6 +123,38 @@ pub fn validate_population_json(entities_json: String, source: String) -> Result
     .map_err(|e| format!("serialize: {e}"))
 }
 
+/// Attaches remarks to a wire (tagged + untagged); `annotations`
+/// enables the EXPRESSdoc distinction. Returns the attached wire JSON.
+pub fn attach_remarks_json(
+    wire_json: String,
+    source: String,
+    annotations: bool,
+) -> Result<String, String> {
+    let mut wire: serde_json::Value =
+        serde_json::from_str(&wire_json).map_err(|e| format!("wire json: {e}"))?;
+    crate::attach::attach_tagged_remarks(&mut wire, &source, annotations);
+    crate::attach::attach_untagged_remarks(&mut wire, &source, annotations);
+    serde_json::to_string(&wire).map_err(|e| format!("serialize: {e}"))
+}
+
+/// Formats a wire; `no_remarks` strips remarks. Returns the EXPRESS
+/// text.
+pub fn format_json(wire_json: String, no_remarks: bool) -> Result<String, String> {
+    let wire: serde_json::Value =
+        serde_json::from_str(&wire_json).map_err(|e| format!("wire json: {e}"))?;
+    Ok(crate::formatter::format(&wire, no_remarks))
+}
+
+/// Runs the checker over a wire; `dialect` is optional. Returns the
+/// findings as a JSON array.
+pub fn check_json(wire_json: String, dialect: Option<String>) -> Result<String, String> {
+    let mut wire: serde_json::Value =
+        serde_json::from_str(&wire_json).map_err(|e| format!("wire json: {e}"))?;
+    let notes = crate::checker::check(&mut wire, dialect.as_deref());
+    let findings: Vec<serde_json::Value> = notes.iter().map(|note| note.to_json()).collect();
+    serde_json::to_string(&findings).map_err(|e| format!("serialize: {e}"))
+}
+
 #[cfg(target_arch = "wasm32")]
 mod bindings {
     use wasm_bindgen::prelude::wasm_bindgen;
@@ -139,5 +172,24 @@ mod bindings {
     #[wasm_bindgen]
     pub fn parse_schema(source: String) -> Result<String, String> {
         super::parse_schema_json(source)
+    }
+
+    #[wasm_bindgen]
+    pub fn attach_remarks(
+        wire_json: String,
+        source: String,
+        annotations: bool,
+    ) -> Result<String, String> {
+        super::attach_remarks_json(wire_json, source, annotations)
+    }
+
+    #[wasm_bindgen]
+    pub fn format(wire_json: String, no_remarks: bool) -> Result<String, String> {
+        super::format_json(wire_json, no_remarks)
+    }
+
+    #[wasm_bindgen]
+    pub fn check(wire_json: String, dialect: Option<String>) -> Result<String, String> {
+        super::check_json(wire_json, dialect)
     }
 }
