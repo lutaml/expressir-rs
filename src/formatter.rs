@@ -1126,17 +1126,25 @@ impl<'a> Formatter<'a> {
             "BinaryExpression" => {
                 let operator = str_fld(node, "operator").unwrap_or("").to_string();
                 let precedence = Self::operator_precedence(&operator);
-                let wraps = |field: &str| {
+                // The minimal-paren policy (expressir#651 — the SC4UTILITI-199
+                // normalization contract): EXPRESS operators are
+                // left-associative, so a child binary expression needs
+                // parentheses only when it binds looser than the parent —
+                // strictly looser on the left (a same-precedence left child
+                // reassociates identically: `(a+b)+c` == `a+b+c`), and
+                // same-or-looser on the right (`a+(b+c)` must keep its parens
+                // to preserve the tree). Higher number = looser binding.
+                let wraps = |field: &str, min_precedence: i32| {
                     obj(node, field)
                         .map(|o| {
                             is(o, "Expressions::BinaryExpression")
                                 && Self::operator_precedence(str_fld(o, "operator").unwrap_or(""))
-                                    >= precedence
+                                    >= min_precedence
                         })
                         .unwrap_or(false)
                 };
-                let op1 = wraps("operand1");
-                let op2 = wraps("operand2");
+                let op1 = wraps("operand1", precedence + 1);
+                let op2 = wraps("operand2", precedence);
                 let spelling = match operator.as_str() {
                     "ADDITION" => "+",
                     "AND" => "AND",
@@ -1409,17 +1417,20 @@ impl<'a> Formatter<'a> {
                     _ => 0,
                 };
                 let operator = str_fld(node, "operator").unwrap_or("").to_string();
-                let wraps = |field: &str| {
+                // The minimal-paren policy (expressir#651): left child needs
+                // parens only when strictly looser; right child when
+                // same-or-looser (left-associative operators).
+                let wraps = |field: &str, min_precedence: i32| {
                     obj(node, field)
                         .map(|o| {
                             is(o, "SupertypeExpressions::BinarySupertypeExpression")
                                 && precedence(str_fld(o, "operator").unwrap_or(""))
-                                    > precedence(&operator)
+                                    >= min_precedence
                         })
                         .unwrap_or(false)
                 };
-                let op1 = wraps("operand1");
-                let op2 = wraps("operand2");
+                let op1 = wraps("operand1", precedence(&operator) + 1);
+                let op2 = wraps("operand2", precedence(&operator));
                 let spelling = operator.as_str();
                 let left = if op1 {
                     format!("({})", self.child(ptr, "operand1"))
