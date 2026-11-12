@@ -1101,6 +1101,10 @@ impl<'a> Formatter<'a> {
 
     // ---- expressions ----
 
+    /// The relational tier is non-associative: its same-precedence
+    /// children keep parentheses on both sides (expressir#651).
+    const RELATIONAL_PRECEDENCE: i32 = 4;
+
     fn operator_precedence(operator: &str) -> i32 {
         match operator {
             "EXPONENTIATION" => 1,
@@ -1127,24 +1131,31 @@ impl<'a> Formatter<'a> {
                 let operator = str_fld(node, "operator").unwrap_or("").to_string();
                 let precedence = Self::operator_precedence(&operator);
                 // The minimal-paren policy (expressir#651 — the SC4UTILITI-199
-                // normalization contract): EXPRESS operators are
-                // left-associative, so a child binary expression needs
-                // parentheses only when it binds looser than the parent —
-                // strictly looser on the left (a same-precedence left child
-                // reassociates identically: `(a+b)+c` == `a+b+c`), and
-                // same-or-looser on the right (`a+(b+c)` must keep its parens
-                // to preserve the tree). Higher number = looser binding.
-                let wraps = |field: &str, min_precedence: i32| {
+                // normalization contract): EXPRESS's arithmetic and logical
+                // operators are left-associative, so a same-precedence child
+                // needs no parentheses on the left (`(a+b)+c` == `a+b+c`) and
+                // same-or-looser children need them on the right
+                // (`a+(b+c)` keeps its parens). The relational tier
+                // (=, <>, <, >, <=, >=, :=:, :<>:, IN, LIKE) is
+                // NON-associative — a chain re-parses to a different tree or
+                // not at all — so same-precedence children keep parentheses
+                // on BOTH sides. Looser children always get parentheses.
+                // Higher number = looser binding.
+                let relational = precedence == Self::RELATIONAL_PRECEDENCE;
+                let wraps = |field: &str, min_precedence: i32, same_side: bool| {
                     obj(node, field)
                         .map(|o| {
-                            is(o, "Expressions::BinaryExpression")
-                                && Self::operator_precedence(str_fld(o, "operator").unwrap_or(""))
-                                    >= min_precedence
+                            is(o, "Expressions::BinaryExpression") && {
+                                let child =
+                                    Self::operator_precedence(str_fld(o, "operator").unwrap_or(""));
+                                child >= min_precedence
+                                    || (relational && same_side && child == precedence)
+                            }
                         })
                         .unwrap_or(false)
                 };
-                let op1 = wraps("operand1", precedence + 1);
-                let op2 = wraps("operand2", precedence);
+                let op1 = wraps("operand1", precedence + 1, true);
+                let op2 = wraps("operand2", precedence, true);
                 let spelling = match operator.as_str() {
                     "ADDITION" => "+",
                     "AND" => "AND",
