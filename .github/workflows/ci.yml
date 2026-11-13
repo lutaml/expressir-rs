@@ -107,6 +107,9 @@ jobs:
           for f in express-grammar.parg express_keywords.parg express_operators.parg express_remarks.parg express_literals.parg; do
             cp "expressir/grammar-parg/$f" "assets/$f"
           done
+          # The model attr table (expressir#634): the ruby model tree is
+          # the source of truth; this repo's copy must track it.
+          cp "expressir/spec/fixtures/model_attr_table.json" "assets/model_attr_table.json"
       - run: git diff --exit-code assets/
       # The remark scanner + attachment ports are gated against the Ruby
       # lanes over every .exp fixture the expressir checkout carries.
