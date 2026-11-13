@@ -290,6 +290,73 @@ impl<'a> Formatter<'a> {
             .join(sep)
     }
 
+    /// expressir#655: render a list of Variable/Parameter/Attribute
+    /// siblings with the grouping the source wrote — `a, b : INTEGER;` as
+    /// one declaration. An adjacent same-`declaration_group` run renders
+    /// through its lead with the joined sibling names, and only when no
+    /// member carries remarks or (for attributes) a renamed supertype
+    /// attribute; every other member renders per name through dispatch.
+    fn list_join_grouped(&mut self, base: &str, field: &str, sep: &str, attribute: bool) -> String {
+        let count = arr(self.node(base), field).len();
+        let ptrs: Vec<String> = (0..count).map(|i| format!("{base}/{field}/{i}")).collect();
+        self.join_grouped(&ptrs, sep, attribute)
+    }
+
+    fn join_grouped(&mut self, ptrs: &[String], sep: &str, attribute: bool) -> String {
+        let group_of = |selfish: &Self, p: &str| -> Option<u64> {
+            selfish
+                .node(p)
+                .get("declaration_group")
+                .and_then(Value::as_u64)
+        };
+        let combinable = |selfish: &Self, p: &str| -> bool {
+            let n = selfish.node(p);
+            arr(n, "remark_items").is_empty()
+                && !(attribute && obj(n, "supertype_attribute").is_some())
+        };
+
+        let mut out: Vec<String> = Vec::new();
+        let mut i = 0;
+        while i < ptrs.len() {
+            let lead_group = group_of(self, &ptrs[i]);
+            let run_end = lead_group.and_then(|g| {
+                if i + 1 < ptrs.len() && group_of(self, &ptrs[i + 1]) == Some(g) {
+                    let mut j = i + 1;
+                    while j < ptrs.len() && group_of(self, &ptrs[j]) == Some(g) {
+                        j += 1;
+                    }
+                    if (i..j).all(|k| combinable(self, &ptrs[k])) {
+                        return Some(j);
+                    }
+                }
+                None
+            });
+
+            if let (Some(j), Some(_)) = (run_end, lead_group) {
+                let ids = (i..j)
+                    .map(|k| id_of(self.node(&ptrs[k])).unwrap_or_default().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let lead = self.node(&ptrs[i]).clone();
+                let t = cls(&lead).rsplit("::").next().unwrap_or("").to_string();
+                let rendered = match t.as_str() {
+                    "Attribute" | "DerivedAttribute" | "InverseAttribute" => {
+                        self.format_attribute_ids(&ptrs[i], &lead, Some(&ids))
+                    }
+                    "Parameter" => self.format_parameter_ids(&ptrs[i], &lead, Some(&ids)),
+                    "Variable" => self.format_variable_ids(&ptrs[i], &lead, Some(&ids)),
+                    _ => self.dispatch(&ptrs[i]),
+                };
+                out.push(rendered);
+                i = j;
+            } else {
+                out.push(self.dispatch(&ptrs[i]));
+                i += 1;
+            }
+        }
+        out.join(sep)
+    }
+
     fn format_body(&mut self, ptr: &str, node: &Value) -> String {
         let class = cls(node).to_string();
         let t = class.rsplit("::").next().unwrap_or("").to_string();
@@ -462,11 +529,7 @@ impl<'a> Formatter<'a> {
             out.push(preamble.trim_end().to_string());
         }
         if !explicit.is_empty() {
-            let body = explicit
-                .iter()
-                .map(|p| self.dispatch(p))
-                .collect::<Vec<_>>()
-                .join("\n");
+            let body = self.join_grouped(&explicit, "\n", true);
             out.push(indent(&body));
         }
         for (label, group) in [("DERIVE", derived), ("INVERSE", inverse)] {
@@ -534,10 +597,10 @@ impl<'a> Formatter<'a> {
         {
             let param_indent = " ".repeat(format!("{keyword} {id}(").len());
             let count = arr(node, "parameters").len();
-            let items = (0..count)
-                .map(|i| self.child(ptr, &format!("parameters/{i}")))
-                .collect::<Vec<_>>()
-                .join(&format!(";\n{param_indent}"));
+            let param_ptrs: Vec<String> = (0..count)
+                .map(|i| format!("{ptr}/parameters/{i}"))
+                .collect();
+            let items = self.join_grouped(&param_ptrs, &format!(";\n{param_indent}"), false);
             head.push_str(&format!("({items})"));
         }
         if is_function {
@@ -567,7 +630,7 @@ impl<'a> Formatter<'a> {
             )));
         }
         if !arr(node, "variables").is_empty() {
-            let inner = self.list_join(ptr, "variables", "\n");
+            let inner = self.list_join_grouped(ptr, "variables", "\n", false);
             out.push(indent(&format!("LOCAL\n{}\nEND_LOCAL;", indent(&inner))));
         }
         if !arr(node, "statements").is_empty() {
@@ -614,7 +677,7 @@ impl<'a> Formatter<'a> {
             )));
         }
         if !arr(node, "variables").is_empty() {
-            let inner = self.list_join(ptr, "variables", "\n");
+            let inner = self.list_join_grouped(ptr, "variables", "\n", false);
             out.push(indent(&format!("LOCAL\n{}\nEND_LOCAL;", indent(&inner))));
         }
         let stmt_count = arr(node, "statements").len();
@@ -721,6 +784,12 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_attribute(&mut self, ptr: &str, node: &Value) -> String {
+        self.format_attribute_ids(ptr, node, None)
+    }
+
+    /// expressir#655: `ids` carries the joined sibling names when this
+    /// attribute leads a multi-name source declaration.
+    fn format_attribute_ids(&mut self, ptr: &str, node: &Value, ids: Option<&str>) -> String {
         let mut out = String::new();
         if obj(node, "supertype_attribute").is_some() {
             out.push_str(&self.child(ptr, "supertype_attribute"));
@@ -731,8 +800,9 @@ impl<'a> Formatter<'a> {
             if supertype_attr_id.map(|attr_id| id_of(node) != Some(attr_id)) == Some(true) {
                 out.push_str(&format!("RENAMED {} ", id_of(node).unwrap_or_default()));
             }
-        } else if let Some(id) = id_of(node) {
-            out.push_str(&format!("{id} "));
+        } else if id_of(node).is_some() {
+            let names = ids.unwrap_or_else(|| id_of(node).unwrap_or_default());
+            out.push_str(&format!("{names} "));
         }
         out.push(':');
         if truthy(node, "optional") {
@@ -756,12 +826,13 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_parameter(&mut self, ptr: &str, node: &Value) -> String {
+        self.format_parameter_ids(ptr, node, None)
+    }
+
+    fn format_parameter_ids(&mut self, ptr: &str, node: &Value, ids: Option<&str>) -> String {
         let var = if truthy(node, "var") { "VAR " } else { "" };
-        let mut out = format!(
-            "{var}{} : {}",
-            id_of(node).unwrap_or_default(),
-            self.child(ptr, "type")
-        );
+        let names = ids.unwrap_or_else(|| id_of(node).unwrap_or_default());
+        let mut out = format!("{var}{names} : {}", self.child(ptr, "type"));
         for remark in self.format_remark_items_children(ptr) {
             out.push('\n');
             out.push_str(&remark);
@@ -770,16 +841,17 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_variable(&mut self, ptr: &str, node: &Value) -> String {
+        self.format_variable_ids(ptr, node, None)
+    }
+
+    fn format_variable_ids(&mut self, ptr: &str, node: &Value, ids: Option<&str>) -> String {
         let expr = if obj(node, "expression").is_some() {
             format!(" := {}", self.child(ptr, "expression"))
         } else {
             String::new()
         };
-        let mut out = format!(
-            "{} : {}{expr};",
-            id_of(node).unwrap_or_default(),
-            self.child(ptr, "type")
-        );
+        let names = ids.unwrap_or_else(|| id_of(node).unwrap_or_default());
+        let mut out = format!("{names} : {}{expr};", self.child(ptr, "type"));
         for remark in self.format_remark_items_children(ptr) {
             out.push('\n');
             out.push_str(&remark);

@@ -445,36 +445,26 @@ fn query_expression_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
 fn aggregate_initializer_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     let mut items = Vec::new();
     if let Some(list) = hash_get(arena, n, "listOf_element") {
-        // The Ruby-side tree wraps multi-occurrence elements in
-        // rule-key hashes, routing them through build_element (which
-        // keeps `[a : b, c : d]` repetition); a single occurrence merges
-        // into the holder and dispatches on its first key, dropping the
-        // repetition (`[4:2]` yields the bare expression). Both shapes
-        // are mirrored here.
-        match &list {
-            AstNode::Array { .. } => {
-                for element in children_of(arena, &list, "element") {
-                    let expression = hash_get(arena, &element, "expression")
-                        .and_then(|e| expression_value(arena, &e))?;
-                    if let Some(rep) = hash_get(arena, &element, "repetition") {
-                        let mut m = node("Expressir::Model::Expressions::AggregateInitializerItem");
-                        m.insert("expression".into(), expression);
-                        put(
-                            &mut m,
-                            "repetition",
-                            hash_get(arena, &rep, "numericExpression")
-                                .and_then(|ne| expression_value(arena, &ne)),
-                        );
-                        items.push(obj(m));
-                    } else {
-                        items.push(expression);
-                    }
-                }
-            }
-            _ => {
-                for element in children_of(arena, &list, "element") {
-                    items.push(build(arena, &element)?);
-                }
+        // Multi-occurrence holders wrap elements in an array; a single
+        // occurrence merges into the holder hash. Both shapes go through
+        // the element handling so `[4:2]` keeps its repetition — the
+        // former single-occurrence arm dispatched on the element's first
+        // key and dropped the AggregateInitializerItem (expressir#654).
+        for element in children_of(arena, &list, "element") {
+            let expression = hash_get(arena, &element, "expression")
+                .and_then(|e| expression_value(arena, &e))?;
+            if let Some(rep) = hash_get(arena, &element, "repetition") {
+                let mut m = node("Expressir::Model::Expressions::AggregateInitializerItem");
+                m.insert("expression".into(), expression);
+                put(
+                    &mut m,
+                    "repetition",
+                    hash_get(arena, &rep, "numericExpression")
+                        .and_then(|ne| expression_value(arena, &ne)),
+                );
+                items.push(obj(m));
+            } else {
+                items.push(expression);
             }
         }
     }

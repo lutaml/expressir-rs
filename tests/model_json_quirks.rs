@@ -55,15 +55,24 @@ fn schema_version_items_split_like_the_ruby_builder() {
 }
 
 #[test]
-fn single_element_aggregate_drops_repetition() {
-    // [4:2] — a single occurrence merges into the holder and dispatches
-    // on its first key: bare expression, no AggregateInitializerItem.
+fn single_element_aggregate_keeps_repetition() {
+    // [4:2] — expressir#654: the single occurrence merges into the holder
+    // hash, which used to dispatch on its first key and drop the
+    // AggregateInitializerItem; both holder shapes route through the
+    // element handling now, matching the Ruby builder.
     let src = "SCHEMA s;\nFUNCTION f : INTEGER;\n  LOCAL x : INTEGER; END_LOCAL;\n  x := [4:2];\nEND_FUNCTION;\nEND_SCHEMA;\n";
     let v = wire(src);
     let stmt = &schema(&v)["functions"][0]["statements"][0];
     let item = &stmt["expression"]["items"][0];
-    assert_eq!(item["_class"], "Expressir::Model::Literals::Integer");
-    assert!(item.get("repetition").is_none());
+    assert_eq!(
+        item["_class"],
+        "Expressir::Model::Expressions::AggregateInitializerItem"
+    );
+    assert_eq!(
+        item["expression"]["_class"],
+        "Expressir::Model::Literals::Integer"
+    );
+    assert_eq!(item["repetition"]["value"], "2");
 }
 
 #[test]
