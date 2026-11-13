@@ -1770,6 +1770,12 @@ pub struct IndexEntry {
     pub line: usize,
     pub end_line: Option<usize>,
     pub offset: Option<u64>,
+    /// The node's captured span end (`source_end_offset`): the last slice's
+    /// end across the rule subtree. Remark spans must measure THIS, not the
+    /// formatted length — formatter policy changes would drift every derived
+    /// end position and flip attachment decisions (expressir#653, mirrored
+    /// from the Ruby builder's source_length).
+    pub end_offset: Option<u64>,
     pub order: usize,
     /// The JSON pointer of the collection-attribute owner (Ruby's
     /// `owner`), and the collection attribute this node came from.
@@ -1836,15 +1842,16 @@ impl WireIndex {
         // formatted source starts with a declaration keyword (those
         // legitimately start at byte 0).
         entries.retain(|e| e.offset != Some(0) || POSITION_VALID.contains(&e.class.as_str()));
-        // Ruby end_line = line_number(offset + source.length) over the
-        // FORMATTED text, maxed with collection children's own ends
-        // (NodePositionIndex#record_node_position). The formatted-length
-        // mirror supplies `source.length`.
-        let lens = crate::format_len::lengths_by_ptr(root);
+        // Ruby end_line = line_number(offset + span) over the ORIGINAL
+        // captured span (NodePositionIndex#span_length over source_length,
+        // expressir#653), maxed with the collection children's propagated
+        // ends. The wire carries the captured span end directly
+        // (`source_end_offset` from model_json#attach_offset), so no
+        // formatted-length mirror is needed.
         let mut spans: Vec<Option<usize>> = entries
             .iter()
-            .map(|e| match (e.offset, lens.get(e.ptr.as_str())) {
-                (Some(off), Some(p)) => Some(line_of(&starts, off + p.len as u64)),
+            .map(|e| match (e.offset, e.end_offset) {
+                (Some(_), Some(end)) => Some(line_of(&starts, end)),
                 _ => None,
             })
             .collect();
@@ -2046,6 +2053,7 @@ fn collect(
                         line: line_of(starts, offset),
                         end_line: None,
                         offset: Some(offset),
+                        end_offset: map.get("source_end_offset").and_then(Value::as_u64),
                         order: out.len(),
                         owner_ptr: owner_ptr.clone(),
                         collection,
@@ -2263,11 +2271,13 @@ mod index_tests {
         // node (same_start wins) — the attribute on line 3.
         let nearest = index.nearest_node_to(3).expect("nearest");
         assert_eq!(nearest.class, "Attribute");
-        // After the entity's END_ENTITY the remark line carries no node
-        // span except the file container's (Ruby's index over formatted
-        // lengths) — same_end wins on the ExpFile.
+        // The END_SCHEMA line belongs to the schema: under the captured
+        // span ends (expressir#653) the schema's propagated end line
+        // reaches the closing line, so same_end picks the Schema, not
+        // the file container (the Ruby lane agrees — the non_ascii
+        // fixture's END_SCHEMA tail lands on the schema).
         let nearest = index.nearest_node_to(5).expect("nearest");
-        assert_eq!(nearest.class, "ExpFile");
+        assert_eq!(nearest.class, "Schema");
     }
 
     #[test]
@@ -3020,12 +3030,14 @@ mod untagged_tests {
     }
 
     #[test]
-    fn remark_between_scopes_lands_on_the_file_root() {
-        // A remark on its own line after END_ENTITY: no node spans the
-        // line under Ruby's formatted-length index, so the fallback
-        // nearest is the file container — ExpFile takes it untagged,
-        // unplaced, and nothing renders it (conservation counts it as
-        // dropped).
+    fn remark_between_scopes_lands_on_the_schema() {
+        // A remark on its own line between END_ENTITY and END_SCHEMA sits
+        // inside the schema body: under the captured span ends
+        // (expressir#653) the schema's propagated end covers the remark's
+        // line, so the schema takes it — the Ruby lane agrees (schema
+        // untagged_remarks holds "why", the root stays empty). Under the
+        // old formatted-length index it escaped to the file root, where
+        // nothing rendered it.
         let source = "SCHEMA demo;\n  ENTITY thing;\n    name : STRING;\n  END_ENTITY;\n  -- why\nEND_SCHEMA;\n";
         let wire = wire_with_untagged(source);
         let entity = wire.pointer("/schemas/0/entities/0").expect("entity");
@@ -3033,12 +3045,16 @@ mod untagged_tests {
             entity.get("remarks").is_none(),
             "no plain remarks on entity"
         );
-        let root = wire
+        let schema = wire.pointer("/schemas/0").expect("schema");
+        let untagged = schema
             .get("untagged_remarks")
             .and_then(Value::as_array)
-            .expect("root untagged");
-        assert_eq!(root.len(), 1);
-        assert_eq!(root[0].get("text"), Some(&Value::String("why".to_string())));
+            .expect("schema untagged");
+        assert_eq!(untagged.len(), 1);
+        assert_eq!(
+            untagged[0].get("text"),
+            Some(&Value::String("why".to_string()))
+        );
     }
 
     #[test]

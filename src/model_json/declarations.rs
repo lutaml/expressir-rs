@@ -17,6 +17,30 @@ use super::{
     attach_offset, children_of, node, obj, put, put_list, simple_ref, unwrap_child, REF_ID_KEYS,
 };
 
+// Multi-name declaration groups (expressir#655): siblings of one source
+// declaration share a group number so the formatters print the combined
+// declaration. The Ruby builder numbers them from a per-thread counter
+// reset at build start; this counter mirrors that exactly, so the wire
+// numbers agree lane for lane.
+thread_local! {
+    static DECLARATION_GROUP_COUNTER: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+pub fn reset_declaration_group_counter() {
+    DECLARATION_GROUP_COUNTER.with(|c| c.set(0));
+}
+
+fn next_declaration_group(ids_len: usize) -> Option<u64> {
+    if ids_len <= 1 {
+        return None;
+    }
+    DECLARATION_GROUP_COUNTER.with(|c| {
+        let next = c.get() + 1;
+        c.set(next);
+        Some(next)
+    })
+}
+
 const CLASS_ENTITY: &str = "Expressir::Model::Declarations::Entity";
 const CLASS_TYPE: &str = "Expressir::Model::Declarations::Type";
 const CLASS_FUNCTION: &str = "Expressir::Model::Declarations::Function";
@@ -297,11 +321,15 @@ fn local_variables_json(arena: &AstArena, decl: &AstNode) -> Vec<Value> {
                 .and_then(|pt| parameter_type_json(arena, &pt));
             let expr =
                 hash_get(arena, &var, "expression").and_then(|e| expression_value(arena, &e));
+            let group = next_declaration_group(ids.len());
             ids.into_iter().map(move |id| {
                 let mut m = node(CLASS_VARIABLE);
                 m.insert("id".into(), Value::String(id));
                 put(&mut m, "type", ty.clone());
                 put(&mut m, "expression", expr.clone());
+                if let Some(g) = group {
+                    m.insert("declaration_group".into(), Value::from(g));
+                }
                 obj(m)
             })
         })
@@ -370,6 +398,7 @@ fn head_parameters_json(arena: &AstArena, host: &AstNode, list_key: &str) -> Vec
             }
             let ty = hash_get(arena, &formal, "parameterType")
                 .and_then(|pt| parameter_type_json(arena, &pt));
+            let group = next_declaration_group(ids.len());
             ids.into_iter().map(move |id| {
                 let mut m = node(CLASS_PARAMETER);
                 m.insert("id".into(), Value::String(id));
@@ -377,6 +406,9 @@ fn head_parameters_json(arena: &AstArena, host: &AstNode, list_key: &str) -> Vec
                     m.insert("var".into(), Value::Bool(true));
                 }
                 put(&mut m, "type", ty.clone());
+                if let Some(g) = group {
+                    m.insert("declaration_group".into(), Value::from(g));
+                }
                 obj(m)
             })
         })
@@ -521,9 +553,13 @@ fn explicit_attrs_json(arena: &AstArena, group: &AstNode) -> Vec<Value> {
         Some(holder) => children_of(arena, &holder, "attributeDecl"),
         None => children_of(arena, group, "attributeDecl"),
     };
+    let declaration_group = next_declaration_group(decls.len());
     for decl in decls {
         let mut m = node(CLASS_ATTRIBUTE);
         m.insert("kind".into(), Value::String("EXPLICIT".into()));
+        if let Some(g) = declaration_group {
+            m.insert("declaration_group".into(), Value::from(g));
+        }
         let supertype_attribute = hash_get(arena, &decl, "redeclaredAttribute").and_then(|re| {
             hash_get(arena, &re, "qualifiedAttribute").and_then(|qa| {
                 qualified_attribute_json(arena, &qa).map(|mut qa_v| {

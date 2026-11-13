@@ -44,6 +44,10 @@ pub enum ModelJsonError {
 }
 
 pub fn model_json(arena: &AstArena, root: &AstNode, path: &str) -> Result<Value, ModelJsonError> {
+    // One parse = one numbering space for multi-name declaration groups
+    // (expressir#655): the Ruby builder resets its per-thread counter at
+    // build start, so the wire numbers match lane for lane.
+    declarations::reset_declaration_group_counter();
     let mut schemas = Vec::new();
 
     if let Some(syntax) = hash_get(arena, root, "syntax") {
