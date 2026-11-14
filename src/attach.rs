@@ -3172,7 +3172,7 @@ mod untagged_tests {
         );
         let root = wire.get("untagged_remarks").and_then(Value::as_array);
         assert!(
-            root.map_or(true, |r| r.is_empty()),
+            root.is_none_or(|r| r.is_empty()),
             "the unpositioned root takes nothing"
         );
     }
