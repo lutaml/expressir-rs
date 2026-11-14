@@ -30,6 +30,9 @@ pub use model_json::model_json;
 use std::sync::OnceLock;
 
 use parsanol::portable::to_parslet_compatible;
+use parsanol::portable::bytecode::compiler::Compiler;
+use parsanol::portable::bytecode::program::Program;
+use parsanol::portable::bytecode::vm::{BytecodeVM, VMConfig};
 use parsanol::portable::{AstArena, Grammar, PortableParser};
 
 /// The EXPRESS grammar source at edition 2 — the same .parg file the
@@ -61,8 +64,7 @@ pub fn grammar_digest() -> String {
 }
 
 pub fn grammar() -> &'static Grammar {
-    static GRAMMAR: OnceLock<Grammar> = OnceLock::new();
-    GRAMMAR.get_or_init(|| {
+    static GRAMMAR: OnceLock<Grammar> = OnceLock::new();    GRAMMAR.get_or_init(|| {
         use parsanol::parg::frontend;
         let mut parsed = frontend::parser::parse_grammar(EXPRESS_GRAMMAR_PARG)
             .expect("embedded EXPRESS grammar is valid");
@@ -109,13 +111,74 @@ pub struct ParsedTree {
     _grammar: &'static Grammar,
 }
 
+/// The EXPRESS grammar compiled to bytecode, once, shared read-only by
+/// every parse and every batch worker thread (#507): the VM does not
+/// touch the interpreter's per-parse machinery, so the compile cost is
+/// paid a single time per process. `None` when the grammar does not
+/// compile for this backend — the interpreter path stays the fallback.
+fn bytecode_program() -> Option<&'static Program> {
+    static PROGRAM: OnceLock<Option<Program>> = OnceLock::new();
+    PROGRAM
+        .get_or_init(|| {
+            if std::env::var("EXPRESSIR_PACKRAT").as_deref() == Ok("1") {
+                return None;
+            }
+            Compiler::new(grammar().clone()).compile().ok()
+        })
+        .as_ref()
+}
+
+/// Diagnostic probe for #507: parse through the bytecode VM directly,
+/// bypassing `bytecode_program`'s gate. Not a production path — the
+/// differential test compares this against `parse` per fixture to find
+/// where the compiled program and the interpreter diverge.
+pub fn parse_vm_probe(source: &str) -> Result<ParsedTree, parsanol::portable::ParseError> {
+    let program = Compiler::new(grammar().clone())
+        .compile()
+        .expect("express grammar compiles to bytecode");
+    let mut arena = Box::new(AstArena::for_input(source.len()));
+    arena.set_input(source.to_string());
+    let mut vm = BytecodeVM::new(&program, source, arena.as_mut(), VMConfig::default());
+    let result = vm.run()?;
+    if result.end_pos != source.len() {
+        return Err(parsanol::portable::ParseError::Incomplete {
+            expected: source.len(),
+            actual: result.end_pos,
+        });
+    }
+    let root = to_parslet_compatible(&result.value, arena.as_mut(), source);
+    Ok(ParsedTree {
+        arena,
+        root,
+        _grammar: grammar(),
+    })
+}
+
 impl ParsedTree {
     pub fn parse(source: &str) -> Result<Self, parsanol::portable::ParseError> {
         let grammar = grammar();
         let mut arena = Box::new(AstArena::for_input(source.len()));
         arena.set_input(source.to_string());
-        let mut parser = PortableParser::new(grammar, source, &mut arena);
-        let raw = parser.parse()?;
+        let raw = if let Some(program) = bytecode_program() {
+            // The compiled-program path (#507): the grammar compiles to
+            // bytecode once, and every parse — including every batch
+            // worker thread — borrows the same read-only program. The
+            // VM requires full consumption, mirroring the interpreter's
+            // end-of-input check.
+            let mut vm = BytecodeVM::new(program, source, arena.as_mut(), VMConfig::default());
+            let result = vm.run()?;
+            if result.end_pos == source.len() {
+                Ok(result.value)
+            } else {
+                Err(parsanol::portable::ParseError::Incomplete {
+                    expected: source.len(),
+                    actual: result.end_pos,
+                })
+            }
+        } else {
+            let mut parser = PortableParser::new(grammar, source, &mut arena);
+            parser.parse()
+        }?;
         let root = to_parslet_compatible(&raw, arena.as_mut(), source);
         Ok(Self {
             arena,
