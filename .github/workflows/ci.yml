@@ -117,7 +117,16 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4"
-      - run: cd expressir && bundle install --jobs 4 && cd -
+      # CI-only overlay: pin the parity bundle to the known-good
+      # lutaml-model. A fresh resolve lands 0.8.175, whose hydration
+      # reshapes sparse (rust-emitted) wires and drifts 19 fixtures —
+      # investigated upstream in lutaml/lutaml-model#1160. Drop this
+      # pin when that lands or the adaptation is made.
+      - run: |
+          cd expressir
+          echo 'gem "lutaml-model", "0.8.161"' >> Gemfile
+          bundle install --jobs 4
+          cd -
       - run: |
           RUST_MIN_STACK=67108864 EXPRESSIR_DIR=$PWD/expressir cargo test --release --test remark_attachment_parity
           RUST_MIN_STACK=67108864 EXPRESSIR_DIR=$PWD/expressir cargo test --release --test formatted_len_parity
