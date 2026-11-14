@@ -237,7 +237,10 @@ pub(crate) fn attach_offset(arena: &AstArena, subtree: &AstNode, value: &mut Val
         let offset = crate::walk::first_slice_offset(arena, subtree, 0).unwrap_or(0);
         let (start, stop) = (offset as usize, end as usize);
         if stop <= input.len() && start <= stop {
-            map.insert("source".into(), Value::String(input[start..stop].to_string()));
+            map.insert(
+                "source".into(),
+                Value::String(input[start..stop].to_string()),
+            );
             map.insert("source_length".into(), Value::from(stop - start));
         }
     }

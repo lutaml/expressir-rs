@@ -1812,9 +1812,24 @@ fn is_remark_scope(class: &str) -> bool {
 
 /// Ruby position_valid?'s offset-0 keyword set (node_position_index.rb).
 const DECLARATION_KEYWORDS: &[&str] = &[
-    "SCHEMA", "ENTITY", "TYPE", "FUNCTION", "PROCEDURE", "RULE", "CONSTANT", "VARIABLE", "USE",
-    "REFERENCE", "END_SCHEMA", "END_ENTITY", "END_TYPE", "END_FUNCTION", "END_PROCEDURE",
-    "END_RULE", "END_CONSTANT", "END_VARIABLE",
+    "SCHEMA",
+    "ENTITY",
+    "TYPE",
+    "FUNCTION",
+    "PROCEDURE",
+    "RULE",
+    "CONSTANT",
+    "VARIABLE",
+    "USE",
+    "REFERENCE",
+    "END_SCHEMA",
+    "END_ENTITY",
+    "END_TYPE",
+    "END_FUNCTION",
+    "END_PROCEDURE",
+    "END_RULE",
+    "END_CONSTANT",
+    "END_VARIABLE",
 ];
 
 /// DFS over the wire in document order, indexing every `_class` node
@@ -1844,9 +1859,9 @@ impl WireIndex {
         // remarks attach to them on both lanes.
         entries.retain(|e| {
             e.offset != Some(0)
-                || e.source.as_deref().is_some_and(|s| {
-                    DECLARATION_KEYWORDS.iter().any(|kw| s.starts_with(kw))
-                })
+                || e.source
+                    .as_deref()
+                    .is_some_and(|s| DECLARATION_KEYWORDS.iter().any(|kw| s.starts_with(kw)))
         });
         // Ruby end_line = line_number(offset + span) over the ORIGINAL
         // captured span (NodePositionIndex#span_length over source_length,
@@ -2063,7 +2078,10 @@ fn collect(
                         order: out.len(),
                         owner_ptr: owner_ptr.clone(),
                         collection,
-                        source: map.get("source").and_then(Value::as_str).map(str::to_string),
+                        source: map
+                            .get("source")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
                     });
                 }
             }
