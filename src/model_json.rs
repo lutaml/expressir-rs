@@ -227,6 +227,19 @@ pub(crate) fn attach_offset(arena: &AstArena, subtree: &AstNode, value: &mut Val
     }
     if let Some(end) = crate::walk::last_slice_end(arena, subtree, 0) {
         map.insert("source_end_offset".into(), Value::from(u64::from(end)));
+        // Builder#attach_source_info also stamps source_length on every
+        // node and source = the captured input slice. The remark
+        // attacher's position_valid? reads the source at offset 0 (a
+        // keyword-leading slice legitimates a byte-0 start) — without
+        // these fields the hydrated model leaves offset-0 roots
+        // unpositioned and file-trailing remarks scatter.
+        let input = arena.get_input();
+        let offset = crate::walk::first_slice_offset(arena, subtree, 0).unwrap_or(0);
+        let (start, stop) = (offset as usize, end as usize);
+        if stop <= input.len() && start <= stop {
+            map.insert("source".into(), Value::String(input[start..stop].to_string()));
+            map.insert("source_length".into(), Value::from(stop - start));
+        }
     }
 }
 
