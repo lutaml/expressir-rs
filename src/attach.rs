@@ -1783,20 +1783,6 @@ pub struct IndexEntry {
     pub collection: Option<&'static str>,
 }
 
-/// Ruby `position_valid?`: a formatted source that opens with a
-/// declaration keyword may legitimately start at byte 0.
-const POSITION_VALID: &[&str] = &[
-    "ExpFile",
-    "Schema",
-    "Entity",
-    "Type",
-    "Function",
-    "Procedure",
-    "Rule",
-    "Constant",
-    "Interface",
-];
-
 /// Line-start offsets over the source (the LineMap analog).
 fn line_starts(source: &str) -> Vec<usize> {
     let mut starts = vec![0usize];
@@ -1840,8 +1826,16 @@ impl WireIndex {
         }
         // Ruby position_valid?: offset 0 is only trusted for nodes whose
         // formatted source starts with a declaration keyword (those
-        // legitimately start at byte 0).
-        entries.retain(|e| e.offset != Some(0) || POSITION_VALID.contains(&e.class.as_str()));
+        // legitimately start at byte 0). The parity harness feeds ruby the
+        // wire with end offsets stripped and NO source strings at all —
+        // so ruby's position_valid? fails for EVERY offset-0 node (the
+        // keyword check reads a nil source) and such nodes are
+        // unpositioned in ruby's index: all their end-scope/containment
+        // lookups miss and trailing remarks fall to nearest-node. The
+        // port must mirror that, not keep offset-0 roots resolvable
+        // (rs#499: the file-trailing END_SCHEMA remark attached to the
+        // schema here and to the last procedure on the ruby lane).
+        entries.retain(|e| e.offset != Some(0));
         // Ruby end_line = line_number(offset + span) over the ORIGINAL
         // captured span (NodePositionIndex#span_length over source_length,
         // expressir#653), maxed with the collection children's propagated
@@ -2251,13 +2245,14 @@ mod index_tests {
         // Ruby end_line = line_number(offset + formatted length): the
         // entity's formatted text spans its END_ENTITY line.
         assert_eq!(entity.end_line, Some(4));
-        // Document order: the schema precedes its entity.
-        let schema = index
-            .entries
-            .iter()
-            .find(|e| e.class == "Schema")
-            .expect("schema");
-        assert!(schema.order < entity.order);
+        // The offset-0 schema is UNPOSITIONED (mirrors Ruby
+        // position_valid?: offset 0 needs a keyword-leading source, and
+        // the wire carries no source strings — rs#499's harness finding).
+        assert!(
+            index.entries.iter().all(|e| e.class != "Schema"),
+            "the offset-0 schema must not be indexed"
+        );
+        assert!(entity.order > 0);
     }
 
     #[test]
@@ -2271,13 +2266,14 @@ mod index_tests {
         // node (same_start wins) — the attribute on line 3.
         let nearest = index.nearest_node_to(3).expect("nearest");
         assert_eq!(nearest.class, "Attribute");
-        // The END_SCHEMA line belongs to the schema: under the captured
-        // span ends (expressir#653) the schema's propagated end line
-        // reaches the closing line, so same_end picks the Schema, not
-        // the file container (the Ruby lane agrees — the non_ascii
-        // fixture's END_SCHEMA tail lands on the schema).
+        // The END_SCHEMA line falls to the nearest POSITIONED node: the
+        // offset-0 schema is unpositioned (Ruby position_valid? fails on
+        // the source-less wire), so the entity — the last indexed node —
+        // takes it (the Ruby lane agrees: the syntax_hyperlink corpus's
+        // file-trailing END_SCHEMA remark lands on the last procedure,
+        // rs#499's harness trace).
         let nearest = index.nearest_node_to(5).expect("nearest");
-        assert_eq!(nearest.class, "Schema");
+        assert_eq!(nearest.class, "Entity");
     }
 
     #[test]
@@ -2291,10 +2287,10 @@ mod index_tests {
             .node_for_end_scope_at(4, "  END_ENTITY;")
             .expect("matched");
         assert_eq!(matched.class, "Entity");
-        let matched = index
-            .node_for_end_scope_at(5, "END_SCHEMA;")
-            .expect("matched");
-        assert_eq!(matched.class, "Schema");
+        // The offset-0 schema is unpositioned (Ruby position_valid? on
+        // the source-less wire), so the END_SCHEMA lookup misses — the
+        // remark falls through to nearest-node, as on the Ruby lane.
+        assert!(index.node_for_end_scope_at(5, "END_SCHEMA;").is_none());
     }
 
     #[test]
@@ -3030,30 +3026,30 @@ mod untagged_tests {
     }
 
     #[test]
-    fn remark_between_scopes_lands_on_the_schema() {
-        // A remark on its own line between END_ENTITY and END_SCHEMA sits
-        // inside the schema body: under the captured span ends
-        // (expressir#653) the schema's propagated end covers the remark's
-        // line, so the schema takes it — the Ruby lane agrees (schema
-        // untagged_remarks holds "why", the root stays empty). Under the
-        // old formatted-length index it escaped to the file root, where
-        // nothing rendered it.
+    fn remark_between_scopes_lands_on_the_entity() {
+        // A remark on its own line between END_ENTITY and END_SCHEMA:
+        // the offset-0 schema is unpositioned (Ruby position_valid? on
+        // the source-less wire), so its end-scope containment cannot
+        // take the remark — it falls to nearest-node, which is the
+        // entity (the last positioned node, ending the line before).
+        // Ruby's lane agrees: the syntax_hyperlink corpus's trailing
+        // remarks land on the last procedure (rs#499's harness trace).
         let source = "SCHEMA demo;\n  ENTITY thing;\n    name : STRING;\n  END_ENTITY;\n  -- why\nEND_SCHEMA;\n";
         let wire = wire_with_untagged(source);
         let entity = wire.pointer("/schemas/0/entities/0").expect("entity");
-        assert!(
-            entity.get("remarks").is_none(),
-            "no plain remarks on entity"
-        );
-        let schema = wire.pointer("/schemas/0").expect("schema");
-        let untagged = schema
+        let untagged = entity
             .get("untagged_remarks")
             .and_then(Value::as_array)
-            .expect("schema untagged");
+            .expect("entity untagged");
         assert_eq!(untagged.len(), 1);
         assert_eq!(
             untagged[0].get("text"),
             Some(&Value::String("why".to_string()))
+        );
+        let schema = wire.pointer("/schemas/0").expect("schema");
+        assert!(
+            schema.get("untagged_remarks").is_none(),
+            "the unpositioned schema takes nothing"
         );
     }
 
@@ -3156,25 +3152,28 @@ mod untagged_tests {
     }
 
     #[test]
-    fn remark_after_end_schema_lands_on_the_file_root() {
-        // After END_SCHEMA no node spans the closing-note line; the
-        // fallback nearest is the ExpFile container (Ruby lane verified:
-        // untagged, unplaced, never rendered).
+    fn remark_after_end_schema_lands_on_the_last_positioned_node() {
+        // After END_SCHEMA the fallback nearest is the last POSITIONED
+        // node — both the schema and the ExpFile sit at offset 0 and are
+        // unpositioned (Ruby position_valid? on the source-less wire;
+        // the harness trace: the file-trailing END_SCHEMA remark lands
+        // on the last procedure, rs#499).
         let source = "SCHEMA demo;\n  ENTITY thing;\n    name : STRING;\n  END_ENTITY;\nEND_SCHEMA;\n-- closing note\n";
         let wire = wire_with_untagged(source);
-        let schema = wire.pointer("/schemas/0").expect("schema");
-        assert!(
-            schema.get("remarks").is_none(),
-            "no plain remarks on schema"
-        );
-        let root = wire
+        let entity = wire.pointer("/schemas/0/entities/0").expect("entity");
+        let untagged = entity
             .get("untagged_remarks")
             .and_then(Value::as_array)
-            .expect("root untagged");
-        assert_eq!(root.len(), 1);
+            .expect("entity untagged");
+        assert_eq!(untagged.len(), 1);
         assert_eq!(
-            root[0].get("text"),
+            untagged[0].get("text"),
             Some(&Value::String("closing note".to_string()))
+        );
+        let root = wire.get("untagged_remarks").and_then(Value::as_array);
+        assert!(
+            root.map_or(true, |r| r.is_empty()),
+            "the unpositioned root takes nothing"
         );
     }
 }
