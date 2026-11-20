@@ -101,15 +101,12 @@ fn ruby_symbols(
     serde_json::from_slice(&output.stdout).map_err(|e| format!("json: {e}"))
 }
 
-/// IGNORED pending capture parity: the gate found three
-/// span-convention families where the rs captures diverge from the
-/// ruby builder's (attribute name-token spans on wrapped
-/// declarations, where-rule offsets landing a line late, scope
-/// captures including the END keyword + trailing trivia). The engine
-/// mirrors the ruby walk; the gate goes required when the capture
-/// parity program closes those families.
+/// The corpus symbols walk is byte-exact against the ruby builder
+/// (40/40 docs): the capture-START conventions (rs#116/#121/#122)
+/// closed the span families, and the last two drifting rows were the
+/// ruby builder indexing the source with character addressing on
+/// byte offsets — fixed in lutaml/expressir#695.
 #[test]
-#[ignore = "capture parity: expressir-rs#91 - scope-span rows on the concatenated fixture (38/40 byte-exact)"]
 fn lsp_symbols_match_the_ruby_walk_over_the_corpus() {
     let Some(expressir_dir) = expressir_dir() else {
         eprintln!("EXPRESSIR_DIR not set; skipping");

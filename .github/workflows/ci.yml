@@ -134,3 +134,9 @@ jobs:
       # (#644/#645): the delegation's order contract.
       - run: |
           RUST_MIN_STACK=67108864 EXPRESSIR_DIR=$PWD/expressir cargo test --release --test coverage_parity
+      # The LSP gates (rs#567): the inventory + symbols corpus walks
+      # are byte-exact against the ruby lane — both required.
+      - run: |
+          RUST_MIN_STACK=67108864 EXPRESSIR_DIR=$PWD/expressir cargo test --release --test lsp_inventory_parity
+      - run: |
+          RUST_MIN_STACK=67108864 EXPRESSIR_DIR=$PWD/expressir cargo test --release --test lsp_symbols_parity
