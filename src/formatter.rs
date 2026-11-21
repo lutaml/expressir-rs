@@ -636,11 +636,60 @@ impl<'a> Formatter<'a> {
                 out.push(format!("{label}\n{}", self.indent(&body)));
             }
         }
+        for remark in self.format_informal_propositions(ptr) {
+            out.push(self.indent(&remark));
+        }
         for remark in self.format_remark_items_children(ptr) {
             out.push(self.indent(&remark));
         }
         out.push(format!("END_ENTITY;{}", self.format_end_scope_remark(node)));
         out.join("\n")
+    }
+
+    /// The entity's informal propositions in the ISO remark-tag form so
+    /// the source convention survives the round trip: `--IP1: text`, or
+    /// the bare declaration marker `--IP1:` when the proposition
+    /// carries no text (the WG12 `-- IP1:` markers). The attach stores
+    /// the proposition's texts on its remark item.
+    fn format_informal_propositions(&mut self, ptr: &str) -> Vec<String> {
+        if self.no_remarks {
+            return Vec::new();
+        }
+        let items_ptr = format!("{ptr}/informal_propositions");
+        let count = self.node(&items_ptr).as_array().map(Vec::len).unwrap_or(0);
+        (0..count)
+            .map(|i| {
+                let ip_ptr = format!("{items_ptr}/{i}");
+                let id = id_of(self.node(&ip_ptr)).unwrap_or_default();
+                let mut texts: Vec<String> = arr(self.node(&ip_ptr), "remarks")
+                    .iter()
+                    .filter_map(|r| r.as_str())
+                    .filter(|r| !r.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                let ri_ptr = format!("{ip_ptr}/remark_items");
+                let ri_count = self.node(&ri_ptr).as_array().map(Vec::len).unwrap_or(0);
+                for j in 0..ri_count {
+                    let ri = format!("{ri_ptr}/{j}");
+                    for r in arr(self.node(&ri), "remarks") {
+                        if let Some(t) = r.as_str() {
+                            if !t.is_empty() {
+                                texts.push(t.to_string());
+                            }
+                        }
+                    }
+                }
+                if texts.is_empty() {
+                    format!("--{id}:")
+                } else {
+                    texts
+                        .iter()
+                        .map(|t| format!("--{id}: {t}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+            })
+            .collect()
     }
 
     fn format_type(&mut self, ptr: &str, node: &Value) -> String {
@@ -1757,8 +1806,9 @@ impl<'a> Formatter<'a> {
             return String::new();
         };
         // Placement-carrying remarks render through their own paths
-        // (leading above the node); this appends the legacy tail.
-        if remark.leading() {
+        // (leading above the node, inline after the statement text);
+        // this appends the legacy tail.
+        if remark.placement.is_some() {
             return String::new();
         }
         let Some(text) = remark.text.filter(|t| !t.is_empty()) else {
@@ -1793,28 +1843,38 @@ impl<'a> Formatter<'a> {
         if self.no_remarks {
             return String::new();
         }
-        let remark = arr(node, "untagged_remarks")
+        // Every legacy (unplaced) tail remark belongs after the END_*
+        // keyword — writing only the last dropped the others (the WG12
+        // `-- IP1:` markers). Remarks carrying an explicit placement
+        // render through their placement-aware emitters.
+        let lines: Vec<String> = arr(node, "untagged_remarks")
             .iter()
             .map(Remark::from)
-            .rfind(|r| r.placement.is_none());
-        let Some(remark) = remark else {
-            return String::new();
-        };
-        let Some(text) = remark.text.filter(|t| !t.is_empty()) else {
-            return String::new();
-        };
-        if !remark.tail_like() {
-            return String::new();
-        }
-        let formatted = if remark.tagged() {
-            format!("\"{}\" {text}", remark.tag.unwrap_or_default())
+            .filter(|r| r.placement.is_none() && r.tail_like())
+            .filter_map(|r| {
+                let text = r.text?;
+                if text.is_empty() || text.contains('\n') {
+                    // A multi-line text cannot ride the tail forms (#691).
+                    return None;
+                }
+                let formatted = if r.tagged() {
+                    format!("\"{}\" {text}", r.tag.unwrap_or_default())
+                } else {
+                    text.to_string()
+                };
+                Some(if r.tail_annotation() {
+                    format!("--- {formatted}")
+                } else {
+                    format!("-- {formatted}")
+                })
+            })
+            .collect();
+        if lines.is_empty() {
+            String::new()
         } else {
-            text.to_string()
-        };
-        if remark.tail_annotation() {
-            format!(" --- {formatted}")
-        } else {
-            format!(" -- {formatted}")
+            // The first remark rides the END_ line; the rest follow
+            // below it.
+            format!(" {}", lines.join("\n"))
         }
     }
 
@@ -1826,9 +1886,11 @@ impl<'a> Formatter<'a> {
         let mut remarks: Vec<Remark> = arr(node, "untagged_remarks")
             .iter()
             .map(Remark::from)
-            // Leading remarks render above the node (place_remarks);
-            // emitting them in the preamble would write them twice.
+            // Leading remarks render above the node (place_remarks) and
+            // every legacy tail remark renders after the END_ keyword;
+            // emitting either in the preamble would write them twice.
             .filter(|r| !r.leading())
+            .filter(|r| !(r.placement.is_none() && r.tail_like()))
             .filter(|r| r.text.map(|t| !t.is_empty()).unwrap_or(false))
             .collect();
         if remarks.is_empty() {
