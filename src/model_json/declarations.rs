@@ -67,12 +67,13 @@ pub(crate) struct Declarations {
     functions: Vec<Value>,
     rules: Vec<Value>,
     procedures: Vec<Value>,
-    /// The declaration ids in the order of the source (#711).
-    order: Vec<Value>,
+    /// The declaration ids in the order of the source (#711). The
+    /// schema emission writes it into the wire; the same struct also
+    /// fills algorithm heads, whose wires must stay free of the key.
+    pub(crate) order: Vec<Value>,
 }
 
 pub(crate) fn apply(map: &mut Map<String, Value>, decls: &Declarations) {
-    put_list(map, "declaration_order", decls.order.clone());
     put_list(map, "types", decls.types.clone());
     put_list(map, "entities", decls.entities.clone());
     put_list(
