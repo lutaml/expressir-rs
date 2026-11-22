@@ -211,6 +211,22 @@ fn simple_factor_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
         if let Some(p) = hash_get(arena, &sfe, "primary") {
             return primary_json(arena, &p);
         }
+        // The parenthesized alternative carries op_leftparen plus the
+        // inner expression; the plain primary does not. A
+        // source-parenthesized expression carries the flag so the
+        // printer keeps its pairs (#707).
+        if hash_get(arena, &sfe, "op_leftparen").is_some() {
+            let inner = hash_get(arena, &sfe, "expression")?;
+            let mut v = expression_json(arena, &inner)?;
+            if let Some(map) = v.as_object_mut() {
+                let depth = map
+                    .get("parenthesized")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0);
+                map.insert("parenthesized".into(), Value::from(depth + 1));
+            }
+            return Some(v);
+        }
         return hash_get(arena, &sfe, "expression").and_then(|e| expression_json(arena, &e));
     }
     if let Some(sfue) = hash_get(arena, n, "simpleFactorUnaryExpression") {
@@ -247,6 +263,17 @@ fn simple_factor_unary_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
     } else if let Some(sfe) = hash_get(arena, n, "simpleFactorExpression") {
         if let Some(p) = hash_get(arena, &sfe, "primary") {
             primary_json(arena, &p)
+        } else if hash_get(arena, &sfe, "op_leftparen").is_some() {
+            let inner = hash_get(arena, &sfe, "expression")?;
+            let mut v = expression_json(arena, &inner)?;
+            if let Some(map) = v.as_object_mut() {
+                let depth = map
+                    .get("parenthesized")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0);
+                map.insert("parenthesized".into(), Value::from(depth + 1));
+            }
+            Some(v)
         } else {
             hash_get(arena, &sfe, "expression").and_then(|e| expression_json(arena, &e))
         }

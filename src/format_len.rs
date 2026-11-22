@@ -105,7 +105,13 @@ pub fn lengths_by_ptr(root: &Value) -> HashMap<String, Piece> {
 }
 
 fn class_len(v: &Value, ptr: &str, map: &mut HashMap<String, Piece>) -> Piece {
-    let piece = dispatch(v, ptr, map);
+    let mut piece = dispatch(v, ptr, map);
+    // A source-parenthesized expression keeps its pairs (#707): the
+    // render wraps once per depth level at generic dispatch.
+    let depth = v.get("parenthesized").and_then(Value::as_i64).unwrap_or(0);
+    if depth > 0 {
+        piece.len += 2 * depth as usize;
+    }
     // Schema records its HEAD length (the index-visible `source`); the
     // returned piece is the full render for the parent ExpFile.
     if class_of(v) != "Declarations::Schema" {
@@ -689,6 +695,16 @@ fn binary_expression(v: &Value, ptr: &str, map: &mut HashMap<String, Piece>) -> 
     // renders none drifts every length by the paren pair.
     let mut paren = |key: &str, strict_left: bool| -> Option<Piece> {
         let operand = child(v, key)?;
+        // A source-parenthesized operand carries its own pairs (#707);
+        // the printer adds no precedence parens around it.
+        if operand
+            .get("parenthesized")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            > 0
+        {
+            return Some(fmt(Some(v), key, ptr, map));
+        }
         if class_of(operand) == "Expressions::BinaryExpression" {
             let child = precedence(str_field(operand, "operator"));
             let wraps = if strict_left {
@@ -723,12 +739,13 @@ fn unary_expression(v: &Value, ptr: &str, map: &mut HashMap<String, Piece>) -> P
     let operand = child(v, "operand");
     let needs_parens = operand
         .map(|o| {
-            matches!(
-                class_of(o),
-                "Expressions::BinaryExpression"
-                    | "Expressions::Interval"
-                    | "Expressions::UnaryExpression"
-            )
+            o.get("parenthesized").and_then(Value::as_i64).unwrap_or(0) == 0
+                && matches!(
+                    class_of(o),
+                    "Expressions::BinaryExpression"
+                        | "Expressions::Interval"
+                        | "Expressions::UnaryExpression"
+                )
         })
         .unwrap_or(false);
     let inner = fmt(Some(v), "operand", ptr, map);

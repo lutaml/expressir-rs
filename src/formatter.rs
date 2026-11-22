@@ -350,7 +350,20 @@ impl<'a> Formatter<'a> {
     fn dispatch(&mut self, ptr: &str) -> String {
         let node = self.node(ptr).clone();
         let body = self.format_body(ptr, &node);
-        self.place_remarks(body, ptr, &node)
+        let text = self.place_remarks(body, ptr, &node);
+        // A source-parenthesized expression keeps its pairs (#707) —
+        // all of them, when the groups were nested.
+        let depth = node
+            .get("parenthesized")
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        if depth > 0 {
+            let open = "(".repeat(depth as usize);
+            let close = ")".repeat(depth as usize);
+            format!("{open}{text}{close}")
+        } else {
+            text
+        }
     }
 
     fn child(&mut self, base: &str, field: &str) -> String {
@@ -495,17 +508,44 @@ impl<'a> Formatter<'a> {
             let inner = self.list_join(ptr, "constants", "\n");
             decls.push(format!("CONSTANT\n{}\nEND_CONSTANT;", self.indent(&inner)));
         }
-        for field in [
-            "types",
-            "entities",
-            "subtype_constraints",
-            "functions",
-            "rules",
-            "procedures",
-        ] {
-            let count = arr(node, field).len();
-            for j in 0..count {
-                decls.push(self.child(ptr, &format!("{field}/{j}")));
+        // The declarations in the order of the source (#711): the wire
+        // records the declaration ids as parsed; schemas without an
+        // order (old wires) keep the grouped-by-kind layout.
+        let order = arr(node, "declaration_order");
+        if order.is_empty() {
+            for field in [
+                "types",
+                "entities",
+                "subtype_constraints",
+                "functions",
+                "rules",
+                "procedures",
+            ] {
+                let count = arr(node, field).len();
+                for j in 0..count {
+                    decls.push(self.child(ptr, &format!("{field}/{j}")));
+                }
+            }
+        } else {
+            let fields = [
+                "types",
+                "entities",
+                "subtype_constraints",
+                "functions",
+                "rules",
+                "procedures",
+            ];
+            for id in order {
+                let Some(id) = id.as_str() else { continue };
+                for field in fields {
+                    let count = arr(node, field).len();
+                    for j in 0..count {
+                        let p = format!("{ptr}/{field}/{j}");
+                        if id_of(self.node(&p)) == Some(id) {
+                            decls.push(self.child(ptr, &format!("{field}/{j}")));
+                        }
+                    }
+                }
             }
         }
         let mut out = vec![self.format_schema_head(ptr, node)];
@@ -698,9 +738,26 @@ impl<'a> Formatter<'a> {
                 if texts.is_empty() {
                     format!("--{id}:")
                 } else {
+                    // A multi-line text cannot ride the shorthand (#691)
+                    // — it renders as the path-tagged block the source
+                    // corpora write.
+                    let tag = format!(
+                        "{}.wr:{id}",
+                        node_path(self.ctx, &ip_ptr).unwrap_or_default()
+                    );
                     texts
                         .iter()
-                        .map(|t| format!("--{id}: {t}"))
+                        .map(|t| {
+                            if t.contains('\n') {
+                                format!(
+                                    "(*\"{tag}\"
+{t}
+*)"
+                                )
+                            } else {
+                                format!("--{id}: {t}")
+                            }
+                        })
                         .collect::<Vec<_>>()
                         .join("\n")
                 }
@@ -1439,6 +1496,11 @@ impl<'a> Formatter<'a> {
                 let wraps = |field: &str, min_precedence: i32, same_side: bool| {
                     obj(node, field)
                         .map(|o| {
+                            // A source-parenthesized operand carries its
+                            // own pairs (#707); the printer adds none.
+                            if o.get("parenthesized").and_then(Value::as_i64).unwrap_or(0) > 0 {
+                                return false;
+                            }
                             is(o, "Expressions::BinaryExpression") && {
                                 let child =
                                     Self::operator_precedence(str_fld(o, "operator").unwrap_or(""));
@@ -1489,9 +1551,14 @@ impl<'a> Formatter<'a> {
             "UnaryExpression" => {
                 let operator = str_fld(node, "operator").unwrap_or("").to_string();
                 let operand = self.node(&format!("{ptr}/operand")).clone();
-                let needs_parens = is(&operand, "Expressions::BinaryExpression")
-                    || is(&operand, "Expressions::Interval")
-                    || is(&operand, "Expressions::UnaryExpression");
+                let needs_parens = operand
+                    .get("parenthesized")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0)
+                    == 0
+                    && (is(&operand, "Expressions::BinaryExpression")
+                        || is(&operand, "Expressions::Interval")
+                        || is(&operand, "Expressions::UnaryExpression"));
                 let sign = match operator.as_str() {
                     "MINUS" => "-",
                     "NOT" => "NOT",
