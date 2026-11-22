@@ -1,7 +1,6 @@
 {
   "Expressir::Model::Declarations::InverseAttribute": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -14,7 +13,6 @@
   ],
   "Expressir::Model::Cache": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "version",
     "root_path",
@@ -22,7 +20,6 @@
   ],
   "Expressir::Model::Declarations::Attribute": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "declaration_group",
@@ -36,14 +33,12 @@
   ],
   "Expressir::Model::Declarations::RemarkItem": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks"
   ],
   "Expressir::Model::DataTypes::Aggregate": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -52,21 +47,18 @@
   ],
   "Expressir::Model::DataTypes::String": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "width",
     "fixed"
   ],
   "Expressir::Model::Literals::String": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "value",
     "encoded"
   ],
   "Expressir::Model::DataTypes::Array": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "bound1",
     "bound2",
@@ -76,7 +68,6 @@
   ],
   "Expressir::Model::DataTypes::Bag": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "bound1",
     "bound2",
@@ -84,7 +75,6 @@
   ],
   "Expressir::Model::DataTypes::Set": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "bound1",
     "bound2",
@@ -92,20 +82,17 @@
   ],
   "Expressir::Model::Literals::Real": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "value"
   ],
   "Expressir::Model::DataTypes::Binary": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "width",
     "fixed"
   ],
   "Expressir::Model::Declarations::Entity": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -122,7 +109,6 @@
   ],
   "Expressir::Model::DataTypes::EnumerationItem": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -130,7 +116,6 @@
   ],
   "Expressir::Model::DataTypes::Enumeration": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "extensible",
     "based_on",
@@ -138,18 +123,15 @@
   ],
   "Expressir::Model::Literals::Logical": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "value"
   ],
   "Expressir::Model::DataTypes::Boolean": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks"
   ],
   "Expressir::Model::Declarations::DerivedAttribute": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -162,13 +144,11 @@
   ],
   "Expressir::Model::Literals::Integer": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "value"
   ],
   "Expressir::Model::DataTypes::Generic": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -176,7 +156,6 @@
   ],
   "Expressir::Model::DataTypes::GenericEntity": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -184,13 +163,11 @@
   ],
   "Expressir::Model::Literals::Binary": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "value"
   ],
   "Expressir::Model::Declarations::Constant": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -200,12 +177,10 @@
   ],
   "Expressir::Model::DataTypes::Integer": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks"
   ],
   "Expressir::Model::DataTypes::List": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "bound1",
     "bound2",
@@ -214,23 +189,19 @@
   ],
   "Expressir::Model::DataTypes::Logical": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks"
   ],
   "Expressir::Model::DataTypes::Real": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "precision"
   ],
   "Expressir::Model::DataTypes::Number": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks"
   ],
   "Expressir::Model::DataTypes::Select": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "extensible",
     "generic_entity",
@@ -239,7 +210,6 @@
   ],
   "Expressir::Model::References::IndexReference": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "ref",
     "index1",
@@ -247,7 +217,6 @@
   ],
   "Expressir::Model::Declarations::UniqueRule": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -256,21 +225,18 @@
   ],
   "Expressir::Model::References::GroupReference": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "ref",
     "entity"
   ],
   "Expressir::Model::References::AttributeReference": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "ref",
     "attribute"
   ],
   "Expressir::Model::Declarations::WhereRule": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -279,7 +245,6 @@
   ],
   "Expressir::Model::Declarations::InformalPropositionRule": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -288,7 +253,6 @@
   ],
   "Expressir::Model::Declarations::Function": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -306,7 +270,6 @@
   ],
   "Expressir::Model::Statements::Alias": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -316,7 +279,6 @@
   ],
   "Expressir::Model::Declarations::Parameter": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "declaration_group",
@@ -327,13 +289,11 @@
   ],
   "Expressir::Model::Repository": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "files"
   ],
   "Expressir::Model::Declarations::SubtypeConstraint": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -345,7 +305,6 @@
   ],
   "Expressir::Model::References::SimpleReference": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "ref",
@@ -353,7 +312,6 @@
   ],
   "Expressir::Model::Declarations::Procedure": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -370,7 +328,6 @@
   ],
   "Expressir::Model::Declarations::Variable": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "declaration_group",
@@ -381,14 +338,12 @@
   ],
   "Expressir::Model::Statements::CaseAction": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "labels",
     "statement"
   ],
   "Expressir::Model::Statements::Case": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "expression",
     "actions",
@@ -396,14 +351,12 @@
   ],
   "Expressir::Model::Declarations::InterfaceItem": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "ref",
     "id"
   ],
   "Expressir::Model::Declarations::Interface": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "kind",
     "schema",
@@ -411,14 +364,12 @@
   ],
   "Expressir::Model::Statements::Assignment": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "ref",
     "expression"
   ],
   "Expressir::Model::Declarations::InterfacedItem": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -427,7 +378,6 @@
   ],
   "Expressir::Model::Declarations::Rule": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -446,12 +396,10 @@
   ],
   "Expressir::Model::Statements::Null": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks"
   ],
   "Expressir::Model::Declarations::Schema": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -466,14 +414,12 @@
     "functions",
     "rules",
     "procedures",
-    "declaration_order",
     "header",
     "selected",
     "file_basename"
   ],
   "Expressir::Model::Statements::If": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "expression",
     "statements",
@@ -481,32 +427,27 @@
   ],
   "Expressir::Model::Statements::Escape": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks"
   ],
   "Expressir::Model::Declarations::SchemaVersionItem": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "name",
     "value"
   ],
   "Expressir::Model::Declarations::SchemaVersion": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "value",
     "items"
   ],
   "Expressir::Model::Statements::Compound": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "statements"
   ],
   "Expressir::Model::Declarations::Type": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -517,20 +458,17 @@
   ],
   "Expressir::Model::ExpFile": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "path",
     "schemas"
   ],
   "Expressir::Model::Expressions::AggregateInitializer": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "items"
   ],
   "Expressir::Model::Statements::Repeat": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -544,21 +482,18 @@
   ],
   "Expressir::Model::Expressions::AggregateInitializerItem": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "expression",
     "repetition"
   ],
   "Expressir::Model::Statements::ProcedureCall": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "procedure",
     "parameters"
   ],
   "Expressir::Model::Expressions::BinaryExpression": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "operator",
     "operand1",
@@ -566,27 +501,23 @@
   ],
   "Expressir::Model::Expressions::EntityConstructor": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "entity",
     "parameters"
   ],
   "Expressir::Model::SupertypeExpressions::OneofSupertypeExpression": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "operands"
   ],
   "Expressir::Model::Expressions::FunctionCall": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "function",
     "parameters"
   ],
   "Expressir::Model::Expressions::Interval": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "low",
     "operator1",
@@ -596,7 +527,6 @@
   ],
   "Expressir::Model::SupertypeExpressions::BinarySupertypeExpression": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "operator",
     "operand1",
@@ -604,7 +534,6 @@
   ],
   "Expressir::Model::Expressions::QueryExpression": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "id",
     "remarks",
@@ -614,19 +543,16 @@
   ],
   "Expressir::Model::Statements::Skip": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks"
   ],
   "Expressir::Model::Expressions::UnaryExpression": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "operator",
     "operand"
   ],
   "Expressir::Model::Statements::Return": [
     "source_offset",
-    "parenthesized",
     "untagged_remarks",
     "expression"
   ]
