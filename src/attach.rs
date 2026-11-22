@@ -1453,6 +1453,25 @@ pub fn attach_tagged_remarks(root: &mut Value, source: &str, annotations: bool) 
         }
 
         if let Some(target_ptr) = target {
+            // A tag resolved by path to the IP declaration itself re-houses
+            // on its remark item (#705): every informal-proposition text
+            // lives on the item, qualified tags included.
+            let target_ptr = match root.pointer(&target_ptr) {
+                Some(node) if class_suffix(node) == Some("InformalPropositionRule") => {
+                    let id = node
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let parent_ptr = target_ptr
+                        .rsplit_once("/informal_propositions")
+                        .map(|(p, _)| p.to_string());
+                    parent_ptr
+                        .and_then(|p| create_or_find_informal_proposition(root, &p, &id))
+                        .unwrap_or(target_ptr)
+                }
+                _ => target_ptr,
+            };
             if let Some(target_node) = root.pointer_mut(&target_ptr) {
                 if add_remark_to(target_node, &remark.text, remark.tag.as_deref()) {
                     attached_spans.push(remark.position);
