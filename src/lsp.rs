@@ -150,6 +150,59 @@ pub(crate) fn name_offset(window: &[u8], offset: usize, id: &str) -> Option<usiz
     None
 }
 
+/// The ruby attacher extends every positioned node's span through its
+/// own tail remarks' first lines (extend_source_slices, #712); the
+/// symbols read spans off the ATTACHED wire, so the pass rides here.
+fn extend_spans_through_remarks(node: &mut Value, bytes: &[u8]) {
+    let Value::Object(map) = node else { return };
+    let start = map.get("source_offset").and_then(Value::as_u64);
+    let len = map.get("source_length").and_then(Value::as_u64);
+    if let (Some(start), Some(len)) = (start, len) {
+        let mut end = start + len;
+        if let Some(Value::Array(remarks)) = map.get("untagged_remarks") {
+            for remark in remarks {
+                let Some(ro) = remark.get("source_offset").and_then(Value::as_u64) else {
+                    continue;
+                };
+                if ro <= start {
+                    continue;
+                }
+                let ro = ro as usize;
+                if ro >= bytes.len() {
+                    continue;
+                }
+                let remark_end = match bytes[ro..].iter().position(|&b| b == b'\n') {
+                    Some(i) => ro + i + 1,
+                    None => bytes.len(),
+                };
+                end = end.max(remark_end as u64);
+            }
+        }
+        let extended = end - start;
+        if extended > len {
+            map.insert("source_length".into(), Value::from(extended));
+            map.insert("source_end_offset".into(), Value::from(end));
+            if (end as usize) <= bytes.len() && (start as usize) <= bytes.len() {
+                map.insert(
+                    "source".into(),
+                    Value::String(
+                        String::from_utf8_lossy(&bytes[start as usize..end as usize]).to_string(),
+                    ),
+                );
+            }
+        }
+    }
+    for (_k, v) in map.iter_mut() {
+        match v {
+            Value::Array(items) => items
+                .iter_mut()
+                .for_each(|c| extend_spans_through_remarks(c, bytes)),
+            Value::Object(_) => extend_spans_through_remarks(v, bytes),
+            _ => {}
+        }
+    }
+}
+
 fn walk(node: &Value, parent: Option<usize>, rows: &mut Vec<Entry>) {
     let Value::Object(map) = node else { return };
     let class = class_of(node).to_string();
@@ -247,9 +300,16 @@ fn propagate(entries: &mut [Entry], seeds: &[usize]) {
 /// contract).
 pub fn symbols(source: &str) -> Result<Vec<serde_json::Value>, String> {
     let tree = crate::ParsedTree::parse(source).map_err(|e| format!("parse: {e:?}"))?;
-    let wire = tree
+    let mut wire = tree
         .to_model_json("document.exp")
         .map_err(|e| format!("wire: {e:?}"))?;
+    // The ruby lane's spans come off the ATTACHED model: the remark
+    // attacher extends positioned nodes through their tail remarks'
+    // first lines (#712), and the branch's legacy-tail attach widens
+    // scope spans accordingly. Attach, extend, then measure.
+    crate::attach::attach_tagged_remarks(&mut wire, source, false);
+    crate::attach::attach_untagged_remarks(&mut wire, source, false);
+    extend_spans_through_remarks(&mut wire, source.as_bytes());
     let bytes = source.as_bytes();
     let lines = LineMap::new(bytes);
 
@@ -264,16 +324,13 @@ pub fn symbols(source: &str) -> Result<Vec<serde_json::Value>, String> {
     // declaration-level children, and take the SMALLER of the two for
     // scopes: a scope's true end is its last declaration-level child
     // when the capture overshot, its own span otherwise.
+    // The ruby span end = source_offset + source_length, no trim: the
+    // same-line tail remark's line-end extension lands the scope one
+    // line past its END keyword (extend_source_slices, #712), and the
+    // trim ate exactly that line.
     let seeds: Vec<usize> = entries
         .iter()
-        .map(|entry| {
-            if entry.is_scope {
-                let end = (entry.end as usize).saturating_sub(1);
-                lines.line_number(end.max(entry.start as usize))
-            } else {
-                lines.line_number(entry.start as usize)
-            }
-        })
+        .map(|entry| lines.line_number((entry.end as usize).max(entry.start as usize)))
         .collect();
     propagate(&mut entries, &seeds);
 
