@@ -101,6 +101,11 @@ jobs:
         with:
           repository: lutaml/expressir
           path: expressir
+          # TEMPORARY (the #707/#711 train): the differential gates need
+          # the ruby lane of PR lutaml/expressir#705 — the ruby side
+          # carries the wire flags the mirror accounts for. Revert to
+          # the default checkout once expressir#705 merges.
+          ref: fix/all-legacy-scope-remarks
       - name: Sync the split grammar (expressir#588)
         run: |
           for f in express-grammar.parg express_keywords.parg express_operators.parg express_remarks.parg express_literals.parg; do
