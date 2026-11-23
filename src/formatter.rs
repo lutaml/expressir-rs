@@ -578,10 +578,20 @@ impl<'a> Formatter<'a> {
             out.push(String::new());
             out.push(remark);
         }
-        for remark in self.format_remark_items_children(ptr) {
+        let items = self.format_remark_items_children(ptr);
+        let after_item = !items.is_empty() || !self.format_schema_remarks(node).is_empty();
+        for remark in items {
             out.push(String::new());
             out.push(remark);
         }
+        // Comments after the last declaration, directly above END_SCHEMA.
+        // The blank line above them is already there after the last
+        // declaration, and is not after an item or in an empty schema.
+        let closing = self.format_trailing_region_remarks(node, "declarations");
+        if !closing.is_empty() && (decls.is_empty() || after_item) {
+            out.push(String::new());
+        }
+        out.extend(closing);
         out.push(format!("END_SCHEMA;{}", self.format_end_scope_remark(node)));
         out.join("\n")
     }
@@ -2749,6 +2759,11 @@ impl PrettyFormatter {
             out.push(declarations.join("\n\n"));
             out.push(String::new());
         }
+        let closing = f.format_trailing_region_remarks(node, "declarations");
+        if !closing.is_empty() && declarations.is_empty() {
+            out.push(String::new());
+        }
+        out.extend(closing);
         out.push(format!("END_SCHEMA;{}", f.format_end_scope_remark(node)));
         out.join("\n")
     }

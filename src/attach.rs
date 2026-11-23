@@ -2739,6 +2739,56 @@ fn active_scope_map(lines: &[&str]) -> Vec<Option<(&'static str, usize)>> {
     map
 }
 
+/// `schema_end_target`: a comment on a line of its own whose next code
+/// line is END_SCHEMA closes the declarations of the schema that
+/// END_SCHEMA closes. Blank lines, further comments and the rest of a
+/// block comment (which may name END_SCHEMA in its text) are skipped.
+#[allow(clippy::type_complexity)]
+fn schema_end_target(
+    index: &WireIndex,
+    lines: &[&str],
+    line: usize,
+) -> (Option<String>, Option<&'static str>, Option<&'static str>) {
+    let miss = (None, None, None);
+    let own = lines.get(line - 1).copied().unwrap_or("").trim_start();
+    if !(own.starts_with("--") || own.starts_with("(*")) {
+        return miss;
+    }
+    let mut probe = line;
+    while probe <= lines.len() {
+        let content = lines[probe - 1].trim();
+        if content.starts_with("(*") {
+            while probe <= lines.len() && !lines[probe - 1].contains("*)") {
+                probe += 1;
+            }
+        } else if !(content.is_empty() || content.starts_with("--")) {
+            break;
+        }
+        probe += 1;
+    }
+    let Some(code) = lines.get(probe - 1) else {
+        return miss;
+    };
+    let code = code.trim();
+    let is_end = code.len() >= 10
+        && code.is_char_boundary(10)
+        && code[..10].eq_ignore_ascii_case("END_SCHEMA")
+        && !code[10..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_');
+    if !is_end {
+        return miss;
+    }
+    let schema = index
+        .semantic()
+        .filter(|e| {
+            e.class == "Schema" && e.line <= probe && e.end_line.is_some_and(|end| probe <= end)
+        })
+        .min_by_key(|e| e.order);
+    match schema {
+        Some(e) => (Some(e.ptr.clone()), Some("trailing"), Some("declarations")),
+        None => miss,
+    }
+}
+
 /// `closing_keyword_after`: the first non-blank, non-comment line after
 /// `line`, matched against CLOSING_KEYWORDS.
 fn closing_keyword_after(
@@ -3702,6 +3752,18 @@ pub fn attach_untagged_remarks(root: &mut Value, source: &str, annotations: bool
         // Body comments: inline, closing, or leading/trailing.
         let (target, placement, region) =
             find_body_comment_target(root, source, &index, &lines, remark.line, remark.position);
+        if let Some(ptr) = target {
+            if let Some(node) = root.pointer_mut(&ptr) {
+                add_remark_with_placement(node, &remark.text, remark.format, placement, region);
+                attached.push(remark.position);
+                continue;
+            }
+        }
+
+        // A comment on a line of its own before END_SCHEMA closes the
+        // declarations of its schema (`schema_end_target`); asked last,
+        // after every other lookup has missed.
+        let (target, placement, region) = schema_end_target(&index, &lines, remark.line);
         if let Some(ptr) = target {
             if let Some(node) = root.pointer_mut(&ptr) {
                 add_remark_with_placement(node, &remark.text, remark.format, placement, region);
