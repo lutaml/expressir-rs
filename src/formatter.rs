@@ -1024,6 +1024,9 @@ impl<'a> Formatter<'a> {
             self.child(ptr, "type"),
             self.child(ptr, "expression")
         );
+        // A comment that trailed the constant on its line goes back on
+        // it (#735).
+        out.push_str(&self.format_inline_tail_remark(node));
         for remark in self.format_remark_items_children(ptr) {
             out.push('\n');
             out.push_str(&remark);
@@ -1110,6 +1113,9 @@ impl<'a> Formatter<'a> {
     fn format_unique_rule(&mut self, ptr: &str, node: &Value) -> String {
         let label = id_of(node).map(|id| format!("{id}: ")).unwrap_or_default();
         let mut out = format!("{label}{};", self.list_join(ptr, "attributes", ", "));
+        // A comment that trailed the unique rule on its line goes back
+        // on it (#735).
+        out.push_str(&self.format_inline_tail_remark(node));
         for remark in self.format_remark_items_children(ptr) {
             out.push('\n');
             out.push_str(&remark);

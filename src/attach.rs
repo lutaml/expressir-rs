@@ -2391,7 +2391,17 @@ fn takes_inline_remark(class: &str) -> bool {
     let is_variable = class == "Variable" || class.ends_with("::Variable");
     let is_where_rule = class == "WhereRule" || class.ends_with("::WhereRule");
     let is_enumeration_item = class == "EnumerationItem" || class.ends_with("::EnumerationItem");
-    has_ns || is_interface || is_function || is_variable || is_where_rule || is_enumeration_item
+    // Constants and UNIQUE rules carry same-line remarks too (#735).
+    let is_constant = class == "Constant" || class.ends_with("::Constant");
+    let is_unique = class == "UniqueRule" || class.ends_with("::UniqueRule");
+    has_ns
+        || is_interface
+        || is_function
+        || is_variable
+        || is_where_rule
+        || is_enumeration_item
+        || is_constant
+        || is_unique
 }
 
 /// Executable-statement owners for region lookup (`Model::Statement`
