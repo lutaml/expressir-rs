@@ -2813,6 +2813,34 @@ type Region<'a> = Option<(
     Option<&'static str>,
 )>;
 
+/// `block_before_clause_target`: a block comment at the start of a line,
+/// before the USE FROM or REFERENCE FROM clause that begins on that line,
+/// leads the clause, as an own-line comment above it does.
+#[allow(clippy::type_complexity)]
+fn block_before_clause_target(
+    index: &WireIndex,
+    lines: &[&str],
+    line: usize,
+    position: usize,
+) -> (Option<String>, Option<&'static str>, Option<&'static str>) {
+    static CLAUSE_AFTER_BLOCKS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let content = lines.get(line - 1).copied().unwrap_or("");
+    let re = CLAUSE_AFTER_BLOCKS.get_or_init(|| {
+        regex::Regex::new(r"(?i)\A(?:\s*\(\*.*?\*\))+\s*(?:USE|REFERENCE)\s+FROM\b")
+            .expect("valid pattern")
+    });
+    if !re.is_match(content) {
+        return (None, None, None);
+    }
+    index
+        .starting_at(line)
+        .into_iter()
+        .find(|e| e.class == "Interface" && e.offset.is_some_and(|o| o > position as u64))
+        .map_or((None, None, None), |e| {
+            (Some(e.ptr.clone()), Some("leading"), None)
+        })
+}
+
 fn statement_region_for<'a>(index: &'a WireIndex, lines: &[&str], line: usize) -> Region<'a> {
     let mut candidates: Vec<&IndexEntry> = index
         .spanning(line)
@@ -3725,6 +3753,10 @@ fn find_body_comment_target(
         if lvt.0.is_some() {
             return lvt;
         }
+    }
+    let clause = block_before_clause_target(index, lines, line, position);
+    if clause.0.is_some() {
+        return clause;
     }
     let closing = closing_region_target(root, index, lines, line, own_line_remark(lines, line));
     if closing.0.is_some() {
