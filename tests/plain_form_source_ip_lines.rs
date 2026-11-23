@@ -1,7 +1,8 @@
 //! The plain form (`no_remarks` + `keep_untagged_remarks`) writes the
-//! `--IPn:` comment lines the SOURCE has, with the source's own text, and
-//! still writes nothing for a proposition that exists only through a tagged
-//! `wr:IPn` description (#723). The full and the stripped form are unchanged.
+//! informal-proposition comment lines (`--IP1: text`) the SOURCE has, with
+//! the source's own text, and still writes nothing for a proposition that
+//! exists only through a tagged informal-proposition description (#723).
+//! The full and the stripped form are unchanged.
 
 use serde_json::Value;
 
@@ -27,9 +28,9 @@ fn stripped(source: &str) -> String {
     expressir::formatter::format(&wire(source), true)
 }
 
-fn entity(wheres: &str, tail: &str) -> String {
+fn entity(where_rules: &str, tail: &str) -> String {
     format!(
-        "SCHEMA s;\nENTITY e;\n  x : INTEGER;\nWHERE\n  WR1: x > 0;\n{wheres}END_ENTITY;\nEND_SCHEMA;\n{tail}"
+        "SCHEMA s;\nENTITY e;\n  x : INTEGER;\nWHERE\n  WR1: x > 0;\n{where_rules}END_ENTITY;\nEND_SCHEMA;\n{tail}"
     )
 }
 

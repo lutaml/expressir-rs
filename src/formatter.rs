@@ -763,7 +763,7 @@ impl<'a> Formatter<'a> {
         let items_ptr = format!("{ptr}/informal_propositions");
         let count = self.node(&items_ptr).as_array().map(Vec::len).unwrap_or(0);
         if self.no_remarks {
-            // The plain form writes only the `--IPn:` comment lines of the
+            // The plain form writes only the informal-proposition comment lines of the
             // source (`source_remarks`), never a tagged description's text.
             return (0..count)
                 .filter_map(|i| {

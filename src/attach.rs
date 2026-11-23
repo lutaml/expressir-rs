@@ -1467,7 +1467,7 @@ pub fn attach_tagged_remarks(root: &mut Value, source: &str, annotations: bool) 
     attached_spans
 }
 
-/// A `--IPn:` comment line of the source: its text (empty for the bare
+/// An informal-proposition comment line of the source: its text (empty for the bare
 /// marker) is also listed in `source_remarks` of the proposition's remark
 /// item, so the plain form can write it while a text that only a tagged
 /// description supplied is not written there.
