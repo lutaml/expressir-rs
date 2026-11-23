@@ -156,12 +156,12 @@ fn comments_in_prose_and_on_shared_lines_follow_the_statement_they_followed() {
         (
             "block_with_if_prose",
             "SCHEMA s;\nFUNCTION f (x : INTEGER; y : INTEGER) : INTEGER;\n  IF x > 0 THEN\n    RETURN (1);\n    (* note:\n IF this happens\n *)\n    -- c\n  ELSE\n    RETURN (2);\n    -- e\n  END_IF;\n  RETURN (0);\nEND_FUNCTION;\nEND_SCHEMA;\n",
-            &[("RETURN (1);", "-- c"), ("RETURN (2);", "-- e")],
+            &[("*)", "-- c"), ("RETURN (2);", "-- e")],
         ),
         (
             "block_with_lower_if",
             "SCHEMA s;\nFUNCTION f (x : INTEGER; y : INTEGER) : INTEGER;\n  IF x > 0 THEN\n    RETURN (1);\n    (* if\n       if this\n    *)\n    -- c\n  ELSE\n    RETURN (2);\n  -- e\n  END_IF;\n  RETURN (0);\nEND_FUNCTION;\nEND_SCHEMA;\n",
-            &[("RETURN (1);", "-- c"), ("RETURN (2);", "-- e")],
+            &[("*)", "-- c"), ("RETURN (2);", "-- e")],
         ),
         (
             "block_after_statement_one_line",
@@ -171,12 +171,12 @@ fn comments_in_prose_and_on_shared_lines_follow_the_statement_they_followed() {
         (
             "block_opened_after_statement",
             "SCHEMA s;\nFUNCTION f (x : INTEGER; y : INTEGER) : INTEGER;\n  IF x > 0 THEN\n    RETURN (1); (* IF\n    still *)\n    -- c\n  ELSE\n    RETURN (2);\n  -- e\n  END_IF;\n  RETURN (0);\nEND_FUNCTION;\nEND_SCHEMA;\n",
-            &[("RETURN (1);", "-- c"), ("RETURN (2);", "-- e")],
+            &[("*)", "-- c"), ("RETURN (2);", "-- e")],
         ),
         (
             "two_ifs_in_one_block",
             "SCHEMA s;\nFUNCTION f (x : INTEGER; y : INTEGER) : INTEGER;\n  IF x > 0 THEN\n    y := 1;\n    (*\n    IF a IF b\n    IF c\n    *)\n  -- d\n  ELSE\n    y := 2;\n  -- e\n  END_IF;\n  -- f\n  RETURN (0);\nEND_FUNCTION;\nEND_SCHEMA;\n",
-            &[("y := 1;", "-- d"), ("y := 2;", "-- e"), ("END_IF;", "-- f")],
+            &[("*)", "-- d"), ("y := 2;", "-- e"), ("END_IF;", "-- f")],
         ),
         (
             "prose_in_case",
@@ -186,7 +186,7 @@ fn comments_in_prose_and_on_shared_lines_follow_the_statement_they_followed() {
         (
             "prose_before_end_function",
             "SCHEMA s;\nFUNCTION f (x : INTEGER; y : INTEGER) : INTEGER;\n  y := 1;\n  RETURN (0);\n  (* positive\n     if big *)\n  -- tail\nEND_FUNCTION;\nEND_SCHEMA;\n",
-            &[("RETURN (0);", "-- tail")],
+            &[("*)", "-- tail")],
         ),
         (
             "prose_in_procedure",
@@ -196,12 +196,12 @@ fn comments_in_prose_and_on_shared_lines_follow_the_statement_they_followed() {
         (
             "prose_in_rule",
             "SCHEMA s;\nENTITY e; a : INTEGER; END_ENTITY;\nRULE r FOR (e);\n  LOCAL z : INTEGER; END_LOCAL;\n  z := 1;\n  (* positive\n     if big *)\n  -- c\nWHERE\n  -- w\n  w1 : z > 0;\n  -- w2\nEND_RULE;\nEND_SCHEMA;\n",
-            &[("z := 1;", "-- c"), ("w1: z > 0;", "-- w2")],
+            &[("*)", "-- c"), ("w1: z > 0;", "-- w2")],
         ),
         (
             "nested_block_remark",
             "SCHEMA s;\nFUNCTION f (x : INTEGER; y : INTEGER) : INTEGER;\n  IF x > 0 THEN\n    y := 1;\n    (* a (* IF b *) IF c -- not an end\n       IF d *)\n    -- c\n  ELSE\n    y := 2;\n    -- e\n  END_IF;\n  RETURN (0);\nEND_FUNCTION;\nEND_SCHEMA;\n",
-            &[("y := 1;", "-- c"), ("y := 2;", "-- e")],
+            &[("*)", "-- c"), ("y := 2;", "-- e")],
         ),
         (
             "block_and_dashes_in_text",

@@ -2816,24 +2816,34 @@ fn schema_end_target(
 
 /// `closing_keyword_after`: the first non-blank, non-comment line after
 /// `line`, matched against CLOSING_KEYWORDS.
+/// The scan starts after the LAST line of the remark that starts on `line`
+/// (a `(* ... *)` comment may span several lines and may nest), then skips
+/// whole block comments, `--` lines and blank lines.
 fn closing_keyword_after(
     lines: &[&str],
     line: usize,
 ) -> Option<(&'static str, &'static str, usize)> {
-    let mut probe = line + 1;
+    let (last, after) = comment_end(lines, line);
+    // Code after the `*)` on the last line of a comment of several lines:
+    // the comment is not on lines of its own before a keyword.
+    if last > line && code_follows(&lines[last - 1][after..]) {
+        return None;
+    }
+    let mut probe = last + 1;
     while probe <= lines.len() {
         let content = lines[probe - 1].trim();
         // Embedded remark blocks (`(*"tag" ... *)`) that the renderer
         // emits between a trailing comment and the closing keyword: skip
         // the whole block, the keyword lies beyond it (expressir#609).
         if content.starts_with("(*") {
-            if !content.contains("*)") {
-                probe += 1;
-                while probe <= lines.len() && !lines[probe - 1].contains("*)") {
-                    probe += 1;
-                }
+            let (end, after) = comment_end(lines, probe);
+            // After a remark of several lines, code after that block on
+            // its last line is the next code: no closing keyword at the
+            // start of a line. (A remark of one line is read as before.)
+            if last > line && code_follows(&lines[end - 1][after..]) {
+                return None;
             }
-            probe += 1;
+            probe = end + 1;
             continue;
         }
         if !(content.is_empty() || content.starts_with("--")) {
@@ -2851,6 +2861,91 @@ fn closing_keyword_after(
         }
     }
     None
+}
+
+/// Where the comment starting on `line` ends: the line (`line` itself for a
+/// `--` comment or a block closed on its line, else the line of the `*)`
+/// that closes the outermost `(*`; blocks nest) and the byte offset in that
+/// line just after the comment.
+fn comment_end(lines: &[&str], line: usize) -> (usize, usize) {
+    let mut depth = 0usize;
+    let mut probe = line;
+    while probe <= lines.len() {
+        let bytes = lines[probe - 1].as_bytes();
+        let mut i = 0;
+        if probe == line {
+            // Where the first comment of the line starts, skipping the
+            // quoted strings before it.
+            let mut quoted = false;
+            let mut start = None;
+            for k in 0..bytes.len() {
+                if bytes[k] == b'\'' {
+                    quoted = !quoted;
+                }
+                if !quoted && bytes[k..].starts_with(b"(*")
+                    || !quoted && bytes[k..].starts_with(b"--")
+                {
+                    start = Some(k);
+                    break;
+                }
+            }
+            match start {
+                None => return (probe, bytes.len()),
+                Some(k) if bytes[k..].starts_with(b"--") => return (probe, bytes.len()),
+                Some(k) => i = k,
+            }
+        }
+        while i < bytes.len() {
+            if bytes[i..].starts_with(b"(*") {
+                depth += 1;
+                i += 2;
+            } else if depth > 0 && bytes[i..].starts_with(b"*)") {
+                depth -= 1;
+                i += 2;
+                if depth == 0 {
+                    return (probe, i);
+                }
+            } else {
+                i += 1;
+            }
+        }
+        probe += 1;
+    }
+    (lines.len(), lines.last().map_or(0, |l| l.len()))
+}
+
+/// Whether `rest`, the text after a comment on its line, holds code:
+/// further `(* ... *)` comments closed on the line are passed over; a
+/// comment left open, a `--` comment and white space are not code.
+fn code_follows(rest: &str) -> bool {
+    let bytes = rest.as_bytes();
+    let mut i = 0;
+    loop {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if !bytes[i..].starts_with(b"(*") {
+            return i < bytes.len() && !bytes[i..].starts_with(b"--");
+        }
+        let mut depth = 0usize;
+        while i < bytes.len() {
+            if bytes[i..].starts_with(b"(*") {
+                depth += 1;
+                i += 2;
+            } else if bytes[i..].starts_with(b"*)") {
+                depth -= 1;
+                i += 2;
+                if depth == 0 {
+                    break;
+                }
+            } else {
+                i += 1;
+            }
+        }
+        if depth > 0 {
+            return false;
+        }
+    }
 }
 
 /// `innermost_candidate`: drop candidates that are ancestors of others
