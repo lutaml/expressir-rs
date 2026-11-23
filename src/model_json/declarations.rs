@@ -477,11 +477,15 @@ fn put_supersuper(arena: &AstArena, m: &mut Map<String, Value>, subsuper: &AstNo
     let mut subtype_of: Option<Value> = None;
     let mut supertype_expression: Option<Value> = None;
     let mut is_abstract = false;
+    let mut is_abstract_entity = false;
 
     if let Some(constraint) = hash_get(arena, subsuper, "supertypeConstraint") {
         let abstract_decl = hash_get(arena, &constraint, "abstractEntityDeclaration");
         let abstract_supertype = hash_get(arena, &constraint, "abstractSupertypeDeclaration");
         is_abstract = abstract_decl.is_some() || abstract_supertype.is_some();
+        // The bare `ABSTRACT` form (ISO 10303-11:2004 abstract_entity_declaration)
+        // is recorded apart from `ABSTRACT SUPERTYPE`, so the printer keeps the form.
+        is_abstract_entity = abstract_decl.is_some();
 
         if let Some(rule) = hash_get(arena, &constraint, "supertypeRule") {
             // Family 2 (rs#567): the ruby builder chain re-attaches every
@@ -562,6 +566,9 @@ fn put_supersuper(arena: &AstArena, m: &mut Map<String, Value>, subsuper: &AstNo
 
     if is_abstract {
         m.insert("abstract".into(), Value::Bool(true));
+    }
+    if is_abstract_entity {
+        m.insert("abstract_entity".into(), Value::Bool(true));
     }
     put(m, "supertype_expression", supertype_expression);
     put(m, "subtype_of", subtype_of);

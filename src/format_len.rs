@@ -901,8 +901,14 @@ fn entity(v: &Value, ptr: &str, map: &mut HashMap<String, Piece>) -> Piece {
     let abstract_flag = is_truthy(v, "abstract");
     let has_supertype_expr = is_truthy(v, "supertype_expression");
     if abstract_flag && !has_supertype_expr {
+        // `ABSTRACT` (abstract_entity) or `ABSTRACT SUPERTYPE`.
+        let keyword_len = if is_truthy(v, "abstract_entity") {
+            8
+        } else {
+            18
+        };
         header.push(Piece {
-            len: 1 + 2 + 18,
+            len: 1 + 2 + keyword_len,
             nl: 1,
         });
     } else if abstract_flag && has_supertype_expr {

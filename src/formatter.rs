@@ -676,7 +676,13 @@ impl<'a> Formatter<'a> {
                 self.indent(&format!("ABSTRACT SUPERTYPE OF ({rendered})"))
             ));
         } else if abstract_flag {
-            header.push_str(&format!("\n{}", self.indent("ABSTRACT SUPERTYPE")));
+            // The bare `ABSTRACT` form keeps its text (abstract_entity).
+            let keyword = if truthy(node, "abstract_entity") {
+                "ABSTRACT"
+            } else {
+                "ABSTRACT SUPERTYPE"
+            };
+            header.push_str(&format!("\n{}", self.indent(keyword)));
         } else if has_supertype {
             let rendered = self.child(ptr, "supertype_expression");
             header.push_str(&format!(
@@ -2827,7 +2833,13 @@ impl PrettyFormatter {
         let abstract_flag = node.get("abstract").and_then(Value::as_bool) == Some(true);
         let supertype = obj(node, "supertype_expression");
         if abstract_flag && supertype.is_none() {
-            header.push_str(&format!("\n{}ABSTRACT SUPERTYPE", indent_str));
+            // The bare `ABSTRACT` form keeps its text (abstract_entity).
+            let keyword = if node.get("abstract_entity").and_then(Value::as_bool) == Some(true) {
+                "ABSTRACT"
+            } else {
+                "ABSTRACT SUPERTYPE"
+            };
+            header.push_str(&format!("\n{}{}", indent_str, keyword));
         } else if abstract_flag {
             header.push_str(&format!(
                 "\n{}ABSTRACT SUPERTYPE OF ({})",
