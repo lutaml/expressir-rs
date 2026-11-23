@@ -717,7 +717,7 @@ impl<'a> Formatter<'a> {
         // The ISO shorthand lines are TAGGED-channel content: their texts
         // ride the proposition's remark item, and the plain form's keep
         // flag is for UNTAGGED comments only (#723) — a tagged
-        // description must not reappear as a `--IPn:` line.
+        // description must not reappear as an informal-proposition line.
         if self.no_remarks {
             return Vec::new();
         }
