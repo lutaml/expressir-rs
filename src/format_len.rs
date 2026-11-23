@@ -761,14 +761,23 @@ fn binary_supertype_expression(v: &Value, ptr: &str, map: &mut HashMap<String, P
     let my_prec: u8 = if op == "AND" { 1 } else { 2 };
     let kw = if op == "AND" { "AND" } else { "ANDOR" };
     let mut side = |key: &str| -> (bool, Piece) {
+        // The same rule as the printer: the left operand is wrapped when
+        // strictly looser, the right one when same-or-looser; an operand
+        // that carries the pairs of the source writes them itself.
+        let min_prec = if key == "operand1" {
+            my_prec + 1
+        } else {
+            my_prec
+        };
         let higher = child(v, key)
             .map(|o| {
-                class_of(o) == "SupertypeExpressions::BinarySupertypeExpression"
+                o.get("parenthesized").and_then(Value::as_i64).unwrap_or(0) == 0
+                    && class_of(o) == "SupertypeExpressions::BinarySupertypeExpression"
                     && (if str_field(o, "operator") == "AND" {
                         1
                     } else {
                         2
-                    }) > my_prec
+                    }) >= min_prec
             })
             .unwrap_or(false);
         (higher, fmt(Some(v), key, ptr, map))

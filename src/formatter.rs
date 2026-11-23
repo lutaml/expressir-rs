@@ -1947,10 +1947,13 @@ impl<'a> Formatter<'a> {
                 // The minimal-paren policy (expressir#651): left child needs
                 // parens only when strictly looser; right child when
                 // same-or-looser (left-associative operators).
+                // An operand that carries the pairs of the source writes
+                // them itself (`parenthesized`, as for expressions).
                 let wraps = |field: &str, min_precedence: i32| {
                     obj(node, field)
                         .map(|o| {
-                            is(o, "SupertypeExpressions::BinarySupertypeExpression")
+                            o.get("parenthesized").and_then(Value::as_i64).unwrap_or(0) == 0
+                                && is(o, "SupertypeExpressions::BinarySupertypeExpression")
                                 && precedence(str_fld(o, "operator").unwrap_or(""))
                                     >= min_precedence
                         })

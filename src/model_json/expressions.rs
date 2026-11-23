@@ -679,7 +679,19 @@ fn supertype_term_json(arena: &AstArena, n: &AstNode) -> Option<Value> {
         return Some(obj(m));
     }
     if let Some(expr) = hash_get(arena, n, "supertypeExpression") {
-        return supertype_expression_json(arena, &expr);
+        let mut v = supertype_expression_json(arena, &expr)?;
+        // A parenthesized supertype expression carries the pair of the
+        // source in `parenthesized`, as an expression does (#707).
+        if hash_get(arena, n, "op_leftparen").is_some() {
+            if let Some(map) = v.as_object_mut() {
+                let depth = map
+                    .get("parenthesized")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0);
+                map.insert("parenthesized".into(), Value::from(depth + 1));
+            }
+        }
+        return Some(v);
     }
     None
 }
