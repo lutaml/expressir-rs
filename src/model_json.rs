@@ -106,9 +106,8 @@ fn schema_json(arena: &AstArena, decl: &AstNode, path: &str) -> Result<Value, Mo
         let mut decls = declarations::Declarations::default();
         declarations::schema_declarations(arena, body, &mut decls);
         declarations::apply(&mut map, &decls);
-        // The source-order ids are a SCHEMA property (#711): the same
-        // Declarations struct fills function/procedure/rule algorithm
-        // heads, whose wires must stay free of the key.
+        // The source-order ids (#711); function, procedure and rule
+        // heads record theirs in `fill_algorithm`.
         put_list(&mut map, "declaration_order", decls.order.clone());
     }
 

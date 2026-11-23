@@ -891,18 +891,7 @@ impl<'a> Formatter<'a> {
         }
 
         let mut out = vec![head];
-        for field in [
-            "types",
-            "entities",
-            "subtype_constraints",
-            "functions",
-            "procedures",
-        ] {
-            if !arr(node, field).is_empty() {
-                let body = self.list_join(ptr, field, "\n");
-                out.push(self.indent(&body));
-            }
-        }
+        self.push_nested_declarations(&mut out, ptr, node);
         if !arr(node, "constants").is_empty() {
             let inner = self.list_join(ptr, "constants", "\n");
             out.push(self.indent(&format!("CONSTANT\n{}\nEND_CONSTANT;", self.indent(&inner))));
@@ -936,6 +925,47 @@ impl<'a> Formatter<'a> {
         out.join("\n")
     }
 
+    /// The declarations nested in a FUNCTION, PROCEDURE or RULE. When the
+    /// wire records `declaration_order` (the ids as parsed, as for a
+    /// schema, #711) they follow the source; a wire without it keeps the
+    /// grouped-by-kind layout.
+    fn push_nested_declarations(&mut self, out: &mut Vec<String>, ptr: &str, node: &Value) {
+        const FIELDS: [&str; 5] = [
+            "types",
+            "entities",
+            "subtype_constraints",
+            "functions",
+            "procedures",
+        ];
+        // Each id of the record takes the first nested declaration of that
+        // id not written yet; whatever the record leaves out follows in the
+        // grouped-by-kind order, so every declaration is written once.
+        let all: Vec<String> = FIELDS
+            .iter()
+            .flat_map(|field| (0..arr(node, field).len()).map(move |j| format!("{field}/{j}")))
+            .collect();
+        let mut written = vec![false; all.len()];
+        let mut ordered: Vec<String> = Vec::new();
+        for id in arr(node, "declaration_order") {
+            let Some(id) = id.as_str() else { continue };
+            let hit = (0..all.len()).find(|&k| {
+                !written[k] && id_of(self.node(&format!("{ptr}/{}", all[k]))) == Some(id)
+            });
+            if let Some(k) = hit {
+                written[k] = true;
+                ordered.push(self.child(ptr, &all[k]));
+            }
+        }
+        for (k, rel) in all.iter().enumerate() {
+            if !written[k] {
+                ordered.push(self.child(ptr, rel));
+            }
+        }
+        if !ordered.is_empty() {
+            out.push(self.indent(&ordered.join("\n")));
+        }
+    }
+
     fn format_rule(&mut self, ptr: &str, node: &Value) -> String {
         let applies = self.list_join(ptr, "applies_to", ", ");
         let mut out = vec![format!(
@@ -943,18 +973,7 @@ impl<'a> Formatter<'a> {
             id_of(node).unwrap_or_default(),
             applies
         )];
-        for field in [
-            "types",
-            "entities",
-            "subtype_constraints",
-            "functions",
-            "procedures",
-        ] {
-            if !arr(node, field).is_empty() {
-                let body = self.list_join(ptr, field, "\n");
-                out.push(self.indent(&body));
-            }
-        }
+        self.push_nested_declarations(&mut out, ptr, node);
         if !arr(node, "constants").is_empty() {
             let inner = self.list_join(ptr, "constants", "\n");
             out.push(self.indent(&format!("CONSTANT\n{}\nEND_CONSTANT;", self.indent(&inner))));

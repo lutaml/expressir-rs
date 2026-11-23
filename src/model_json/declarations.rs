@@ -68,8 +68,8 @@ pub(crate) struct Declarations {
     rules: Vec<Value>,
     procedures: Vec<Value>,
     /// The declaration ids in the order of the source (#711). The
-    /// schema emission writes it into the wire; the same struct also
-    /// fills algorithm heads, whose wires must stay free of the key.
+    /// schema emission and the algorithm heads (function, procedure
+    /// and rule) write it into the wire.
     pub(crate) order: Vec<Value>,
 }
 
@@ -988,6 +988,7 @@ fn subtype_constraint_decl_json(arena: &AstArena, n: &AstNode) -> Value {
 fn fill_algorithm(arena: &AstArena, m: &mut Map<String, Value>, head: Option<AstNode>) {
     let parsed = algorithm_head_json(arena, head);
     apply(m, &parsed.decls);
+    put_list(m, "declaration_order", parsed.decls.order.clone());
     put_list(m, "constants", parsed.constants);
     put_list(m, "variables", parsed.variables);
 }

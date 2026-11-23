@@ -17,6 +17,8 @@ const SIGNATURE_IGNORE: &[&str] = &[
     "ref",
     "base_path",
     "file",
+    // The source order of nested declarations is no part of the signature.
+    "declaration_order",
     // The ruby lane's to_hash carries none of these capture fields.
     "source_offset",
     "source_end_offset",
