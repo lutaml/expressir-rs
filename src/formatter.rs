@@ -968,7 +968,7 @@ impl<'a> Formatter<'a> {
     }
 
     fn carries_placed_remark(&self, ptr: &str) -> bool {
-        if self.no_remarks {
+        if self.no_remarks && !self.keep_untagged_remarks {
             return false;
         }
         arr(self.node(ptr), "untagged_remarks")
@@ -2116,7 +2116,7 @@ impl<'a> Formatter<'a> {
     // offset when the remark carries one; otherwise by order — the k-th
     // label remark precedes the k-th action.
     fn case_label_remark(&self, ptr: &str) -> String {
-        if self.no_remarks {
+        if self.no_remarks && !self.keep_untagged_remarks {
             return String::new();
         }
         let Some((case_ptr, action_index)) = ptr
@@ -2194,7 +2194,7 @@ impl<'a> Formatter<'a> {
     }
 
     fn formatted_inline_remarks(&self, node: &Value, accept: &dyn Fn(&Remark) -> bool) -> String {
-        if self.no_remarks {
+        if self.no_remarks && !self.keep_untagged_remarks {
             return String::new();
         }
         arr(node, "untagged_remarks")
@@ -2209,7 +2209,7 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_leading_statement_remarks(&self, node: &Value) -> Vec<String> {
-        if self.no_remarks {
+        if self.no_remarks && !self.keep_untagged_remarks {
             return Vec::new();
         }
         arr(node, "untagged_remarks")
