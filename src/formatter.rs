@@ -592,7 +592,14 @@ impl<'a> Formatter<'a> {
             out.push(String::new());
         }
         out.extend(closing);
-        out.push(format!("END_SCHEMA;{}", self.format_end_scope_remark(node)));
+        // The remark that follows `END_SCHEMA;` stands after the schema:
+        // the plain form (`no_remarks` with `keep_untagged_remarks`) is
+        // the schema with its untagged remarks and ends at `END_SCHEMA;`
+        // (lutaml/expressir#758).
+        out.push(format!(
+            "END_SCHEMA;{}",
+            self.format_schema_end_remark(node)
+        ));
         out.join("\n")
     }
 
@@ -1268,7 +1275,9 @@ impl<'a> Formatter<'a> {
         }
         if obj(node, "supertype_expression").is_some() {
             let rendered = self.child(ptr, "supertype_expression");
-            out.push(self.indent(&format!("{rendered};")));
+            let last = self
+                .last_supertype_operand_remarks(self.node(&format!("{ptr}/supertype_expression")));
+            out.push(self.indent(&format!("{rendered};{last}")));
         }
         for remark in self.format_remark_items_children(ptr) {
             out.push(self.indent(&remark));
@@ -2023,11 +2032,91 @@ impl<'a> Formatter<'a> {
                 format!("{left} {spelling} {right}")
             }
             "OneofSupertypeExpression" => {
-                let operands = self.list_join(ptr, "operands", ", ");
+                let operands = self.supertype_operand_list(ptr);
                 format!("ONEOF({operands})")
             }
             _ => String::new(),
         }
+    }
+
+    /// The operands of a ONEOF, on one line; one a line when a remark
+    /// stands at one of them. A remark that follows an operand on its line
+    /// is written after the comma; the remark of the last operand of the
+    /// whole expression is written after the `;`
+    /// (`last_supertype_operand_remarks`): before the `)` a tail remark
+    /// would take the `)` and the `;` with it. A remark on a line of its
+    /// own above an operand is written at the depth of the operands.
+    fn supertype_operand_list(&mut self, ptr: &str) -> String {
+        let count = arr(self.node(ptr), "operands").len();
+        let operands: Vec<Value> = (0..count)
+            .map(|i| self.node(&format!("{ptr}/operands/{i}")).clone())
+            .collect();
+        let remarked = operands.iter().any(|operand| {
+            is(operand, "References::SimpleReference")
+                && (!self.format_leading_statement_remarks(operand).is_empty()
+                    || !self.supertype_operand_inline_remarks(operand).is_empty())
+        });
+        if !remarked {
+            return self.list_join(ptr, "operands", ", ");
+        }
+        let item_indent = " ".repeat("ONEOF(".len());
+        let items = operands
+            .iter()
+            .enumerate()
+            .map(|(i, operand)| {
+                let mut text = self.child(ptr, &format!("operands/{i}"));
+                let leading = self.format_leading_statement_remarks(operand);
+                let above = format!("{}\n", leading.join("\n"));
+                if let Some(own) = text.strip_prefix(&above).filter(|_| !leading.is_empty()) {
+                    text = leading
+                        .iter()
+                        .map(String::as_str)
+                        .chain([own])
+                        .collect::<Vec<_>>()
+                        .join(&format!("\n{item_indent}"));
+                }
+                if i + 1 == count {
+                    text
+                } else {
+                    format!("{text},{}", self.supertype_operand_inline_remarks(operand))
+                }
+            })
+            .collect::<Vec<_>>();
+        items.join(&format!("\n{item_indent}"))
+    }
+
+    /// The remarks that follow an operand on its line. An operand is a
+    /// reference, whose inline remarks `place_remarks` leaves to its list.
+    fn supertype_operand_inline_remarks(&self, operand: &Value) -> String {
+        if is(operand, "References::SimpleReference") {
+            self.formatted_inline_remarks(operand, &|r: &Remark| r.region.is_none())
+        } else {
+            String::new()
+        }
+    }
+
+    /// The remark that follows the last operand of the whole expression.
+    fn last_supertype_operand_remarks(&self, node: &Value) -> String {
+        let last = if is(node, "SupertypeExpressions::OneofSupertypeExpression") {
+            arr(node, "operands").last()
+        } else if is(node, "SupertypeExpressions::BinarySupertypeExpression") {
+            obj(node, "operand2")
+        } else {
+            return self.supertype_operand_inline_remarks(node);
+        };
+        last.map(|n| self.last_supertype_operand_remarks(n))
+            .unwrap_or_default()
+    }
+
+    /// Whether `ptr` is an operand of a supertype expression: its inline
+    /// remarks are written by `supertype_operand_list` and the constraint.
+    fn is_supertype_operand(&self, ptr: &str, node: &Value) -> bool {
+        is(node, "References::SimpleReference")
+            && self.ctx.parent.get(ptr).is_some_and(|parent| {
+                let parent = self.node(parent);
+                is(parent, "SupertypeExpressions::OneofSupertypeExpression")
+                    || is(parent, "SupertypeExpressions::BinarySupertypeExpression")
+            })
     }
 
     // ---- remarks ----
@@ -2118,6 +2207,17 @@ impl<'a> Formatter<'a> {
         } else {
             format!(" (* {formatted} *)")
         }
+    }
+
+
+    /// The remark that follows `END_SCHEMA;`. It stands after the schema:
+    /// the plain form (`no_remarks` with `keep_untagged_remarks`) is the
+    /// schema with its untagged remarks and ends at `END_SCHEMA;`.
+    fn format_schema_end_remark(&self, node: &Value) -> String {
+        if self.no_remarks {
+            return String::new();
+        }
+        self.format_end_scope_remark(node)
     }
 
     fn format_end_scope_remark(&self, node: &Value) -> String {
@@ -2448,7 +2548,7 @@ impl<'a> Formatter<'a> {
         // An item of an ENUMERATION or of a SELECT is followed by a
         // comma or by the `)` and `;` of its TYPE: its list and its TYPE
         // write the remark after those (`indent_items`, `format_type`).
-        let inline = if is_list_item(node) {
+        let inline = if is_list_item(node) || self.is_supertype_operand(ptr, node) {
             String::new()
         } else {
             self.formatted_inline_remarks(node, &|r: &Remark| r.region.is_none())
