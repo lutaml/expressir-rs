@@ -3703,31 +3703,33 @@ pub fn attach_untagged_remarks(root: &mut Value, source: &str, annotations: bool
     let lines: Vec<&str> = source.lines().collect();
     let index = WireIndex::build(root, source);
     let active_map = active_scope_map(&lines);
+    let code = code_lines(&lines);
     let mut attached: Vec<usize> = Vec::new();
 
     for remark in untagged {
         if attached.contains(&remark.position) {
             continue;
         }
-        let line_content = lines.get(remark.line - 1).copied().unwrap_or("");
+        // What a remark says in its own text, such as `-- before
+        // END_FUNCTION`, is not code: the END-line test reads the code of
+        // the line (`code_lines`).
+        let end_code = code.get(remark.line - 1).map_or("", String::as_str);
 
         // A remark right after a scope's closing keyword closes it.
-        if line_content.contains("END_")
-            && [
-                "END_SCHEMA",
-                "END_ENTITY",
-                "END_TYPE",
-                "END_FUNCTION",
-                "END_PROCEDURE",
-                "END_RULE",
-            ]
-            .iter()
-            .any(|kw| {
-                line_content
-                    .to_ascii_lowercase()
-                    .contains(&kw.to_ascii_lowercase())
-            })
-        {
+        if [
+            "END_SCHEMA",
+            "END_ENTITY",
+            "END_TYPE",
+            "END_FUNCTION",
+            "END_PROCEDURE",
+            "END_RULE",
+        ]
+        .iter()
+        .any(|kw| {
+            end_code
+                .to_ascii_lowercase()
+                .contains(&kw.to_ascii_lowercase())
+        }) {
             let expected_class = [
                 ("end_schema", "Schema"),
                 ("end_entity", "Entity"),
@@ -3737,10 +3739,10 @@ pub fn attach_untagged_remarks(root: &mut Value, source: &str, annotations: bool
                 ("end_rule", "Rule"),
             ]
             .into_iter()
-            .find(|(kw, _)| line_content.to_ascii_lowercase().contains(kw))
+            .find(|(kw, _)| end_code.to_ascii_lowercase().contains(kw))
             .map(|(_, class)| class);
             let matched = index
-                .node_for_end_scope_at(remark.line, line_content)
+                .node_for_end_scope_at(remark.line, end_code)
                 .map(|e| e.ptr.clone())
                 .or_else(|| {
                     // Scope-walk fallback (`scope_owner_for_end_line`):
