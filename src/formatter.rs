@@ -714,7 +714,11 @@ impl<'a> Formatter<'a> {
     /// carries no text (the WG12 `-- IP1:` markers). The attach stores
     /// the proposition's texts on its remark item.
     fn format_informal_propositions(&mut self, ptr: &str) -> Vec<String> {
-        if self.no_remarks && !self.keep_untagged_remarks {
+        // The ISO shorthand lines are TAGGED-channel content: their texts
+        // ride the proposition's remark item, and the plain form's keep
+        // flag is for UNTAGGED comments only (#723) — a tagged
+        // description must not reappear as a `--IPn:` line.
+        if self.no_remarks {
             return Vec::new();
         }
         let items_ptr = format!("{ptr}/informal_propositions");
