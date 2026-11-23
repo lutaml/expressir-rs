@@ -126,11 +126,6 @@ jobs:
       # (lutaml/lutaml-model#1160 closed as falsified).
       - run: |
           cd expressir
-          # Pin the grammar release to the crate's lock: the capture and
-          # span shapes the no-drift gates compare are pin-sensitive,
-          # and a fresh resolve floats past the crate (the version-split
-          # artifact the LSP gates already tripped over).
-          echo 'gem "parsanol", "1.5.11"' >> Gemfile
           bundle install --jobs 4
           cd -
       - run: |
