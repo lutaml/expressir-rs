@@ -1457,11 +1457,36 @@ pub fn attach_tagged_remarks(root: &mut Value, source: &str, annotations: bool) 
                 if add_remark_to(target_node, &remark.text, remark.tag.as_deref()) {
                     attached_spans.push(remark.position);
                 }
+                if remark.tail() && is_ip_tag(tag) {
+                    note_source_ip_line(target_node, tag, &remark.text);
+                }
             }
         }
     }
 
     attached_spans
+}
+
+/// A `--IPn:` comment line of the source: its text (empty for the bare
+/// marker) is also listed in `source_remarks` of the proposition's remark
+/// item, so the plain form can write it while a text that only a tagged
+/// description supplied is not written there.
+fn note_source_ip_line(item: &mut Value, tag: &str, text: &str) {
+    if class_suffix(item) != Some("RemarkItem")
+        || item.get("id").and_then(Value::as_str) != Some(tag)
+    {
+        return;
+    }
+    if item
+        .get("source_remarks")
+        .and_then(Value::as_array)
+        .is_none()
+    {
+        item["source_remarks"] = Value::Array(Vec::new());
+    }
+    if let Some(lines) = item.get_mut("source_remarks").and_then(Value::as_array_mut) {
+        lines.push(Value::String(text.to_string()));
+    }
 }
 
 /// `find_node_in_scope`: registry collections' HasRemarks items whose

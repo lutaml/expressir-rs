@@ -757,11 +757,34 @@ impl<'a> Formatter<'a> {
         // ride the proposition's remark item, and the plain form's keep
         // flag is for UNTAGGED comments only (#723) — a tagged
         // description must not reappear as an informal-proposition line.
-        if self.no_remarks {
+        if self.no_remarks && !self.keep_untagged_remarks {
             return Vec::new();
         }
         let items_ptr = format!("{ptr}/informal_propositions");
         let count = self.node(&items_ptr).as_array().map(Vec::len).unwrap_or(0);
+        if self.no_remarks {
+            // The plain form writes only the `--IPn:` comment lines of the
+            // source (`source_remarks`), never a tagged description's text.
+            return (0..count)
+                .filter_map(|i| {
+                    let ip_ptr = format!("{items_ptr}/{i}");
+                    let id = id_of(self.node(&ip_ptr)).unwrap_or_default();
+                    let lines: Vec<String> = arr(self.node(&ip_ptr), "remark_items")
+                        .iter()
+                        .flat_map(|ri| arr(ri, "source_remarks"))
+                        .filter_map(|t| t.as_str())
+                        .map(|t| {
+                            if t.is_empty() {
+                                format!("--{id}:")
+                            } else {
+                                format!("--{id}: {t}")
+                            }
+                        })
+                        .collect();
+                    (!lines.is_empty()).then(|| lines.join("\n"))
+                })
+                .collect();
+        }
         (0..count)
             .map(|i| {
                 let ip_ptr = format!("{items_ptr}/{i}");
