@@ -104,9 +104,9 @@ jobs:
           # PRs merged (#722/#725/#727/#729), so the ruby lane carries
           # every fix this repo mirrors.
           # PR TEMPORARY: this change lands in the ruby lane and in this repo
-          # together (lutaml/expressir#752); revert to main once the expressir
+          # together (lutaml/expressir#753); revert to main once the expressir
           # branch of the same name merges.
-          ref: fix/abstract-entity-declaration
+          ref: fix/plain-form-keeps-source-ip-lines
           path: expressir
       - name: Sync the split grammar (expressir#588)
         run: |
