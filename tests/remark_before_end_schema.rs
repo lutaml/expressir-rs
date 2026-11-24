@@ -63,8 +63,13 @@ fn the_stripped_form_writes_none_of_them() {
 
 #[test]
 fn the_plain_form_writes_both_before_end_schema() {
+    // A comment after `END_SCHEMA;` stands after the schema: the plain
+    // form ends at `END_SCHEMA;` (expressir#758); D1 and D2 stay.
     let out = expressir::formatter::format_with_keep(&attached(PROBE), true, true);
-    assert_eq!(out, PROBE_OUT);
+    assert_eq!(
+        out,
+        "SCHEMA end_probe;\n\nENTITY a;\nEND_ENTITY;\n\n-- D1 on its own line before the end of the schema\n(* D2 a block on its own line before the end of the schema *)\nEND_SCHEMA;\n"
+    );
 }
 
 #[test]
@@ -94,10 +99,12 @@ fn a_comment_after_end_schema_on_its_line_stays_where_it_was() {
         held(&attached(s), 0),
         vec![("D3 inline".to_string(), None, None)]
     );
+    // The plain form ends at `END_SCHEMA;` — the comment after it
+    // stands after the schema (expressir#758).
     let plain = expressir::formatter::format_with_keep(&attached(s), true, true);
     assert_eq!(
         plain,
-        "SCHEMA s;\n\nENTITY a;\nEND_ENTITY;\n\nEND_SCHEMA; -- D3 inline\n"
+        "SCHEMA s;\n\nENTITY a;\nEND_ENTITY;\n\nEND_SCHEMA;\n"
     );
 }
 
