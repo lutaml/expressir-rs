@@ -2209,7 +2209,6 @@ impl<'a> Formatter<'a> {
         }
     }
 
-
     /// The remark that follows `END_SCHEMA;`. It stands after the schema:
     /// the plain form (`no_remarks` with `keep_untagged_remarks`) is the
     /// schema with its untagged remarks and ends at `END_SCHEMA;`.
