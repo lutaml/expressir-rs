@@ -91,7 +91,9 @@ fn the_stripped_form_writes_none_of_them() {
 fn a_comment_inside_a_nested_expression_and_one_after_the_semicolon() {
     let text = written("  (ONEOF (a, -- first\n          b) ANDOR c); -- last\n");
     assert!(
-        text.contains("  ONEOF(a, -- first\n        b) ANDOR c; -- last\nEND_SUBTYPE_CONSTRAINT;"),
+        text.contains(
+            "  (ONEOF(a, -- first\n        b) ANDOR c); -- last\nEND_SUBTYPE_CONSTRAINT;"
+        ),
         "{text}"
     );
     assert_eq!(formatted(&text), text);
@@ -155,7 +157,7 @@ fn the_comments_of_the_other_lines_of_the_constraint_are_written_as_before() {
 fn a_comment_after_an_operator_is_written_as_before() {
     let text = written("  (ONEOF (a, b) ANDOR -- after operator\n   c);\n");
     assert!(
-        text.contains("  ONEOF(a, b) ANDOR c;\nEND_SUBTYPE_CONSTRAINT; -- after operator"),
+        text.contains("  (ONEOF(a, b) ANDOR c);\nEND_SUBTYPE_CONSTRAINT; -- after operator"),
         "{text}"
     );
 }
@@ -174,15 +176,15 @@ fn a_comment_after_an_inner_oneof_is_written_as_before() {
 #[test]
 fn a_comment_after_a_parenthesized_operand_follows_the_operand() {
     let text = written("  ONEOF ((a), -- x\n b);\n");
-    assert!(text.contains("  ONEOF(a, -- x\n        b);\n"), "{text}");
+    assert!(text.contains("  ONEOF((a), -- x\n        b);\n"), "{text}");
     let text = written("  ONEOF (a, ((b)), -- x\n c);\n");
     assert!(
-        text.contains("  ONEOF(a,\n        b, -- x\n        c);\n"),
+        text.contains("  ONEOF(a,\n        ((b)), -- x\n        c);\n"),
         "{text}"
     );
     let text = written("  ONEOF ((a), -- x\n (b), -- y\n c);\n");
     assert!(
-        text.contains("  ONEOF(a, -- x\n        b, -- y\n        c);\n"),
+        text.contains("  ONEOF((a), -- x\n        (b), -- y\n        c);\n"),
         "{text}"
     );
     assert_eq!(formatted(&text), text);
@@ -192,7 +194,7 @@ fn a_comment_after_a_parenthesized_operand_follows_the_operand() {
 fn a_comment_after_a_parenthesized_last_operand_is_written_after_the_semicolon() {
     let text = written("  (b ANDOR ONEOF ( d , b , c , (c) )) -- c1\n;\n");
     assert!(
-        text.contains("  b ANDOR ONEOF(d,\n        b,\n        c,\n        c); -- c1\nEND_SUBTYPE_CONSTRAINT;"),
+        text.contains("  (b ANDOR ONEOF(d,\n        b,\n        c,\n        (c))); -- c1\nEND_SUBTYPE_CONSTRAINT;"),
         "{text}"
     );
     assert_eq!(formatted(&text), text);
@@ -246,7 +248,7 @@ fn a_comment_before_an_operand_after_the_list_parenthesis_or_a_comma_leads_it() 
 fn a_block_comment_after_a_comma_stays_with_the_operand_before_a_parenthesized_one() {
     let text = written("  ONEOF (a, (* l *)\n (b), c);\n");
     assert!(
-        text.contains("  ONEOF(a, (* l *)\n        b,\n        c);\n"),
+        text.contains("  ONEOF(a, (* l *)\n        (b),\n        c);\n"),
         "{text}"
     );
     assert_eq!(formatted(&text), text);
@@ -261,39 +263,39 @@ fn a_comment_inside_the_parentheses_of_an_operand_is_not_taken() {
     for (body, expected) in [
         (
             "  ONEOF (a, (-- x\n b));\n",
-            "  ONEOF(a, b);\nEND_SUBTYPE_CONSTRAINT; -- x\n",
+            "  ONEOF(a, (b));\nEND_SUBTYPE_CONSTRAINT; -- x\n",
         ),
         (
             "  ONEOF (a, (\n -- x\n b));\n",
-            "  ONEOF(a, b);\nEND_SUBTYPE_CONSTRAINT; -- x\n",
+            "  ONEOF(a, (b));\nEND_SUBTYPE_CONSTRAINT; -- x\n",
         ),
         (
             "  ONEOF (a, ( -- x\n b)) ;\n",
-            "  ONEOF(a, b);\nEND_SUBTYPE_CONSTRAINT; -- x\n",
+            "  ONEOF(a, (b));\nEND_SUBTYPE_CONSTRAINT; -- x\n",
         ),
         (
             "  ONEOF ((-- l\n a), b);\n",
-            "  ONEOF(a, b);\nEND_SUBTYPE_CONSTRAINT; -- l\n",
+            "  ONEOF((a), b);\nEND_SUBTYPE_CONSTRAINT; -- l\n",
         ),
         (
             "  ONEOF (\n -- l\n (a), b);\n",
-            "  ONEOF(a, b);\nEND_SUBTYPE_CONSTRAINT; -- l\n",
+            "  ONEOF((a), b);\nEND_SUBTYPE_CONSTRAINT; -- l\n",
         ),
         (
             "  ONEOF (a,\n -- l\n (b), c);\n",
-            "  ONEOF(a, b, c);\nEND_SUBTYPE_CONSTRAINT; -- l\n",
+            "  ONEOF(a, (b), c);\nEND_SUBTYPE_CONSTRAINT; -- l\n",
         ),
         (
             "  ONEOF (a ANDOR (-- l\n b), c);\n",
-            "  ONEOF(a ANDOR b, c);\nEND_SUBTYPE_CONSTRAINT; -- l\n",
+            "  ONEOF(a ANDOR (b), c);\nEND_SUBTYPE_CONSTRAINT; -- l\n",
         ),
         (
             "  ONEOF (b) ANDOR\n (-- c\n c);\n",
-            "  ONEOF(b) ANDOR c;\nEND_SUBTYPE_CONSTRAINT; -- c\n",
+            "  ONEOF(b) ANDOR (c);\nEND_SUBTYPE_CONSTRAINT; -- c\n",
         ),
         (
             "  ONEOF (b) ANDOR\n ((* c *)\n c);\n",
-            "  ONEOF(b) ANDOR c;\nEND_SUBTYPE_CONSTRAINT;\n",
+            "  ONEOF(b) ANDOR (c);\nEND_SUBTYPE_CONSTRAINT;\n",
         ),
         (
             "  ONEOF (a, b) ANDOR -- c\n c;\n",
@@ -347,7 +349,7 @@ fn a_comment_after_the_name_of_a_parenthesized_last_operand_is_written_after_the
         let text = written(body);
         assert!(
             text.contains(&format!(
-                "  ONEOF(a,\n        b); {comment}\nEND_SUBTYPE_CONSTRAINT;"
+                "  ONEOF(a,\n        (b)); {comment}\nEND_SUBTYPE_CONSTRAINT;"
             )),
             "{body}: {text}"
         );
