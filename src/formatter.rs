@@ -2213,7 +2213,11 @@ impl<'a> Formatter<'a> {
     /// the plain form (`no_remarks` with `keep_untagged_remarks`) is the
     /// schema with its untagged remarks and ends at `END_SCHEMA;`.
     fn format_schema_end_remark(&self, node: &Value) -> String {
-        if self.no_remarks {
+        // The plain face (`no_remarks` with `keep_untagged_remarks`) keeps
+        // the source's own comments — including the one after
+        // `END_SCHEMA;` (lutaml/expressir#758) — so only the stripped
+        // form returns early.
+        if self.no_remarks && !self.keep_untagged_remarks {
             return String::new();
         }
         self.format_end_scope_remark(node)
