@@ -1851,11 +1851,101 @@ fn is_remark_scope(class: &str) -> bool {
 /// The collection name the items of a SELECT list are indexed under.
 pub const SELECT_ITEMS: &str = "select_items";
 
+/// The collections the references of a SUBTYPE_CONSTRAINT's supertype
+/// expression are indexed under: an operand a comma follows in a ONEOF
+/// list, the last operand of the whole expression, and the others (the
+/// operand of an operator, the last operand of an inner ONEOF).
+pub const SUPERTYPE_LISTED: &str = "supertype_listed";
+pub const SUPERTYPE_FINAL: &str = "supertype_final";
+pub const SUPERTYPE_OTHER: &str = "supertype_other";
+
+const SUPERTYPE_OPERAND_COLLECTIONS: &[&str] =
+    &[SUPERTYPE_LISTED, SUPERTYPE_FINAL, SUPERTYPE_OTHER];
+
+/// `[reference, collection]` for each reference of a supertype
+/// expression (`supertype_references` over the wire). `last`: the
+/// rightmost operand so far; `listed`: followed by a comma.
+#[allow(clippy::too_many_arguments)]
+fn collect_supertype_references(
+    node: &Value,
+    ptr: &str,
+    owner_ptr: Option<String>,
+    last: bool,
+    listed: bool,
+    starts: &[usize],
+    out: &mut Vec<IndexEntry>,
+) {
+    let class = node
+        .get("_class")
+        .and_then(Value::as_str)
+        .and_then(|c| c.strip_prefix("Expressir::Model::"))
+        .unwrap_or("");
+    match class {
+        "SupertypeExpressions::OneofSupertypeExpression" => {
+            if let Some(Value::Array(operands)) = node.get("operands") {
+                let count = operands.len();
+                for (i, operand) in operands.iter().enumerate() {
+                    collect_supertype_references(
+                        operand,
+                        &format!("{ptr}/operands/{i}"),
+                        owner_ptr.clone(),
+                        last && i + 1 == count,
+                        i + 1 < count,
+                        starts,
+                        out,
+                    );
+                }
+            }
+        }
+        "SupertypeExpressions::BinarySupertypeExpression" => {
+            if let Some(op) = node.get("operand1").filter(|v| !v.is_null()) {
+                collect_supertype_references(
+                    op,
+                    &format!("{ptr}/operand1"),
+                    owner_ptr.clone(),
+                    false,
+                    false,
+                    starts,
+                    out,
+                );
+            }
+            if let Some(op) = node.get("operand2").filter(|v| !v.is_null()) {
+                collect_supertype_references(
+                    op,
+                    &format!("{ptr}/operand2"),
+                    owner_ptr.clone(),
+                    last,
+                    false,
+                    starts,
+                    out,
+                );
+            }
+        }
+        "References::SimpleReference" => {
+            let collection = if listed {
+                SUPERTYPE_LISTED
+            } else if last {
+                SUPERTYPE_FINAL
+            } else {
+                SUPERTYPE_OTHER
+            };
+            collect(node, ptr, owner_ptr, Some(collection), starts, out);
+        }
+        _ => {}
+    }
+}
+
 /// Whether an indexed node can own a remark sitting on a line of its
 /// own. An item of a SELECT list cannot: it is written inside the list,
 /// and only a remark placed on it (inline or leading) is written there.
+/// An operand of a supertype expression cannot either (ruby's
+/// `remark_scope?` excludes `@supertype_operands`): only
+/// `supertype_operand_target` and `supertype_operand_lead` place remarks
+/// on one.
 fn owns_own_line_remark(entry: &IndexEntry) -> bool {
-    is_remark_scope(&entry.class) && entry.collection != Some(SELECT_ITEMS)
+    is_remark_scope(&entry.class)
+        && entry.collection != Some(SELECT_ITEMS)
+        && !SUPERTYPE_OPERAND_COLLECTIONS.contains(&entry.collection.unwrap_or(""))
 }
 
 /// Ruby position_valid?'s offset-0 keyword set (node_position_index.rb).
@@ -2207,6 +2297,26 @@ fn collect(
                             out,
                         );
                     }
+                }
+            }
+            // The references of a SUBTYPE_CONSTRAINT's supertype
+            // expression are indexed under the supertype collections so
+            // a remark inside the expression finds the operand it
+            // follows or precedes (`supertype_operand_target`,
+            // `supertype_operand_lead`; lutaml/expressir#757). No
+            // registry collection walks `supertype_expression`, so
+            // nothing else indexes them.
+            if class == "Declarations::SubtypeConstraint" {
+                if let Some(expr) = map.get("supertype_expression").filter(|v| !v.is_null()) {
+                    collect_supertype_references(
+                        expr,
+                        &format!("{ptr}/supertype_expression"),
+                        Some(ptr.to_string()),
+                        true,
+                        false,
+                        starts,
+                        out,
+                    );
                 }
             }
             // Schema#children: the pseudo-collection Ruby's index walks —
@@ -3919,6 +4029,12 @@ fn find_body_comment_target(
     if label_block.0.is_some() {
         return label_block;
     }
+    // A remark that trails an operand of a SUBTYPE_CONSTRAINT's supertype
+    // expression on its line (`supertype_operand_target`, #757).
+    let operand = supertype_operand_target(index, source, position);
+    if operand.0.is_some() {
+        return operand;
+    }
     if inline_remark(lines, line) {
         let (target, placement, region) = inline_target(index, lines, line, position);
         if target.is_some() {
@@ -3956,11 +4072,22 @@ fn find_body_comment_target(
 
     let Some((enclosing, region_entries, _region_attr)) = statement_region_for(index, lines, line)
     else {
+        // No statement region: the remark may still lead an operand of a
+        // supertype expression (`supertype_operand_lead`, #757).
+        let lead = supertype_operand_lead(index, source, lines, line, position);
+        if lead.0.is_some() {
+            return lead;
+        }
         return declaration_level_target(index, lines, line);
     };
     // Ruby treats missing region entries as "not in a statement region"
-    // and hands the remark to the declaration-level lookup instead.
+    // and hands the remark to the declaration-level lookup instead —
+    // after the operand-lead probe.
     let Some(region_entries) = region_entries else {
+        let lead = supertype_operand_lead(index, source, lines, line, position);
+        if lead.0.is_some() {
+            return lead;
+        }
         return declaration_level_target(index, lines, line);
     };
     let following = region_entries
@@ -4056,9 +4183,225 @@ fn declaration_level_target(
         // A remark between `SELECT` and the parenthesis, or after the
         // code of another line, does not lead an item of the list.
         Some(f) if f.collection == Some(SELECT_ITEMS) && !leads_select_item(lines, line) => miss,
+        // An operand of a supertype expression does not lead from here:
+        // ruby's `remark_scope?` keeps the operands out of the generic
+        // lookups, and only `supertype_operand_target` and
+        // `supertype_operand_lead` place a remark on one (#757) — a
+        // comment inside an operand's own parentheses stays with the
+        // constraint.
+        Some(f) if SUPERTYPE_OPERAND_COLLECTIONS.contains(&f.collection.unwrap_or("")) => miss,
         Some(f) => (Some(f.ptr.clone()), Some("leading"), None),
         None => miss,
     }
+}
+
+/// The source with every comment overwritten by spaces (new lines kept),
+/// so its byte positions are the source's (`code_without_remarks`).
+/// String literals are kept whole; a block comment runs to its first
+/// `*)`; an unterminated one stays as it stands.
+fn code_without_remarks(source: &str) -> String {
+    let bytes = source.as_bytes();
+    let mut out = bytes.to_vec();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'\'' {
+            // `'[^']*'` — kept, through the next apostrophe.
+            let close = bytes[i + 1..].iter().position(|&b| b == b'\'');
+            i = match close {
+                Some(rel) => i + 1 + rel + 1,
+                None => bytes.len(),
+            };
+        } else if bytes[i..].starts_with(b"(*") {
+            let start = i;
+            let mut j = i + 2;
+            while j < bytes.len() && !bytes[j..].starts_with(b"*)") {
+                j += 1;
+            }
+            // `(*` with no `*)` never matches, so nothing is blanked.
+            if j < bytes.len() {
+                j += 2;
+                for b in &mut out[start..j] {
+                    if *b != b'\n' {
+                        *b = b' ';
+                    }
+                }
+                i = j;
+            } else {
+                i += 2;
+            }
+        } else if bytes[i..].starts_with(b"--") {
+            let start = i;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            for b in &mut out[start..i] {
+                *b = b' ';
+            }
+        } else {
+            i += 1;
+        }
+    }
+    String::from_utf8(out).unwrap_or_else(|_| source.to_string())
+}
+
+/// The byte position where the line of `position` starts (`line_start_of`).
+fn line_start_of(code: &str, position: usize) -> usize {
+    code.as_bytes()[..position.min(code.len())]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(0, |p| p + 1)
+}
+
+/// Whether the bytes hold nothing but closing parentheses with `last`
+/// at the end (`/\A\)*<last>\z/`, the final character optional for `;`).
+fn is_parens_then(between: &str, last: u8) -> bool {
+    let bytes = between.as_bytes();
+    let core = if bytes.last() == Some(&last) {
+        &bytes[..bytes.len() - 1]
+    } else {
+        bytes
+    };
+    core.iter().all(|&b| b == b')')
+}
+
+/// The operands of the supertype expressions, each with where its name
+/// ends (`supertype_operands`).
+fn supertype_operands<'a>(index: &'a WireIndex, source: &str) -> Vec<(&'a IndexEntry, usize)> {
+    let code = code_without_remarks(source);
+    index
+        .entries
+        .iter()
+        .filter_map(move |e| {
+            if !SUPERTYPE_OPERAND_COLLECTIONS.contains(&e.collection.unwrap_or("")) {
+                return None;
+            }
+            let start = e.offset? as usize;
+            let span_end = (e.end_offset? as usize).min(code.len());
+            // The own end of the operand's name: past the white space and
+            // the operand's own closing parentheses the span may hold.
+            let rel = code.as_bytes()[start.min(span_end)..span_end]
+                .iter()
+                .rposition(|&b| b != b')' && !b.is_ascii_whitespace())?;
+            Some((e, start + rel + 1))
+        })
+        .collect()
+}
+
+/// A remark that trails an operand of a SUBTYPE_CONSTRAINT's supertype
+/// expression on its line, with nothing between them but white space,
+/// the operand's own closing parentheses and — for the last operand of
+/// the whole expression — the `;` (`supertype_operand_target`, #757).
+fn supertype_operand_target(
+    index: &WireIndex,
+    source: &str,
+    position: usize,
+) -> (Option<String>, Option<&'static str>, Option<&'static str>) {
+    let miss = (None, None, None);
+    let code = code_without_remarks(source);
+    let Some((operand, finish)) = supertype_operands(index, source)
+        .into_iter()
+        .filter(|(_, finish)| *finish <= position)
+        .max_by_key(|(_, finish)| *finish)
+    else {
+        return miss;
+    };
+    // The remark trails THIS operand only when the operand ends on the
+    // remark's line.
+    if finish < line_start_of(&code, position) {
+        return miss;
+    }
+    let between: String = source[finish.min(source.len())..position.min(source.len())]
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let allowed = match operand.collection {
+        // `/\A\)*,\z/` — the comma is required, so an empty gap matches
+        // nothing (` -- y` after an operand stays with the constraint).
+        Some(SUPERTYPE_LISTED) => {
+            between.as_bytes().last() == Some(&b',') && is_parens_then(&between, b',')
+        }
+        // `/\A\)*;?\z/` — the semicolon is optional.
+        Some(SUPERTYPE_FINAL) => between.is_empty() || is_parens_then(&between, b';'),
+        _ => false,
+    };
+    if allowed {
+        (Some(operand.ptr.clone()), Some("inline"), None)
+    } else {
+        miss
+    }
+}
+
+/// A remark with no code after it on its line, when the next code starts
+/// with an operand of a supertype expression: it leads that operand if
+/// the last code before the remark is a comma or the `(` that opens a
+/// ONEOF list, and nothing but white space and comments lies between the
+/// remark and the operand's name (`supertype_operand_lead`, #757).
+fn supertype_operand_lead(
+    index: &WireIndex,
+    source: &str,
+    lines: &[&str],
+    line: usize,
+    position: usize,
+) -> (Option<String>, Option<&'static str>, Option<&'static str>) {
+    let miss = (None, None, None);
+    let _ = (lines, line);
+    let code = code_without_remarks(source);
+    let Some((following, _)) = supertype_operands(index, source)
+        .into_iter()
+        .filter(|(e, _)| e.offset.is_some_and(|o| (o as usize) >= position))
+        .min_by_key(|(e, _)| e.offset.unwrap_or(0))
+    else {
+        return miss;
+    };
+    let fpos = following.offset.unwrap_or(0) as usize;
+    // Only white space and a new line lie between the remark and the
+    // operand. The span of an operand in parentheses starts at its `(`,
+    // that of the Rust parser at its name, so a `(` before the name is
+    // found in both ways.
+    let gap = code
+        .get(position.min(code.len())..fpos.min(code.len()))
+        .unwrap_or("");
+    let blank_gap = gap.contains('\n')
+        && gap
+            .bytes()
+            .all(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n' | 0x0c));
+    let next_is_paren = code.as_bytes().get(fpos) == Some(&b'(');
+    if !(blank_gap && !next_is_paren) {
+        return miss;
+    }
+    // The last code before the remark: a comma, or the `(` of a ONEOF.
+    let Some(last) = code.as_bytes()[..position.min(code.len())]
+        .iter()
+        .rposition(|&b| !matches!(b, b' ' | b'\t' | b'\r' | b'\n' | 0x0c))
+    else {
+        return miss;
+    };
+    let last_byte = code.as_bytes()[last];
+    let listed = last_byte == b',' || (last_byte == b'(' && oneof_before(&code, last));
+    if !listed || following.collection == Some(SUPERTYPE_OTHER) {
+        return miss;
+    }
+    (Some(following.ptr.clone()), Some("leading"), None)
+}
+
+/// `oneof_before?`: the word before the `(` at `index` is ONEOF.
+fn oneof_before(code: &str, index: usize) -> bool {
+    let bytes = code.as_bytes();
+    let Some(word_end) = bytes[..index.min(bytes.len())]
+        .iter()
+        .rposition(|&b| !matches!(b, b' ' | b'\t' | b'\r' | b'\n' | 0x0c))
+    else {
+        return false;
+    };
+    if word_end < 4 {
+        return false;
+    }
+    code.get(word_end - 4..word_end + 1)
+        .is_some_and(|word| word.eq_ignore_ascii_case("oneof"))
+        && (word_end == 4 || {
+            let before = bytes[word_end - 5];
+            !(before.is_ascii_alphanumeric() || before == b'_')
+        })
 }
 
 /// `add_remark` with a source offset (tail-flavored, no placement).
