@@ -492,3 +492,32 @@ pub extern "C" fn expr_concat_schema(
         }
     }
 }
+
+/// The SHTOLO longform over a resolved repository wire (#636): the
+/// full stage order. Returns the longform schema wire as JSON.
+#[no_mangle]
+pub extern "C" fn expr_flatten_schema(
+    repository_wire: *const c_char,
+    root_id: *const c_char,
+    longform_name: *const c_char,
+) -> *mut c_char {
+    let Some(repository_wire) = input(repository_wire) else {
+        set_error("repository_wire is NULL");
+        return std::ptr::null_mut();
+    };
+    let Some(root_id) = input(root_id) else {
+        set_error("root_id is NULL");
+        return std::ptr::null_mut();
+    };
+    let Some(longform_name) = input(longform_name) else {
+        set_error("longform_name is NULL");
+        return std::ptr::null_mut();
+    };
+    match crate::wasm::flatten_schema_json(repository_wire, root_id, longform_name) {
+        Ok(json) => out(json),
+        Err(err) => {
+            set_error(&err);
+            std::ptr::null_mut()
+        }
+    }
+}

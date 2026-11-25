@@ -304,6 +304,15 @@ mod bindings {
     }
 
     #[wasm_bindgen]
+    pub fn flatten_schema(
+        repository_wire: String,
+        root_id: String,
+        longform_name: String,
+    ) -> Result<String, String> {
+        super::flatten_schema_json(repository_wire, root_id, longform_name)
+    }
+
+    #[wasm_bindgen]
     pub fn parse_population(source: String) -> Result<String, String> {
         super::parse_population_json(source)
     }
@@ -402,4 +411,19 @@ pub fn concat_schema_json(repository_wire: String, root_id: String) -> Result<St
         .collect();
     serde_json::to_string(&serde_json::json!({ "ids": ids, "artifact": artifact }))
         .map_err(|e| format!("serialize: {e}"))
+}
+
+/// The SHTOLO longform over a resolved repository wire (#636): the
+/// full stage order (G.1 copy + munges, subtype-constraint
+/// elimination, prune, reductions, conversions, extensible folding,
+/// provenance). Returns the longform schema wire as JSON.
+pub fn flatten_schema_json(
+    repository_wire: String,
+    root_id: String,
+    longform_name: String,
+) -> Result<String, String> {
+    let wire: serde_json::Value =
+        serde_json::from_str(&repository_wire).map_err(|e| format!("wire json: {e}"))?;
+    let longform = crate::expand::shtolo_flatten(&root_id, &wire, &longform_name);
+    serde_json::to_string(&longform).map_err(|e| format!("serialize: {e}"))
 }
