@@ -5,6 +5,10 @@
 
 use crate::ParsedTree;
 use serde_json::Value;
+use serde_json::Value as JValue;
+
+// json! through the fully qualified macro path works on 2018+.
+use serde_json::json;
 
 /// The wire reference of an interface's target: a resolved
 /// `References::SimpleReference` (`{"id": ..}`), or the pre-resolution
@@ -1060,5 +1064,593 @@ mod prune_tests {
         });
         convert_entities(&mut lf);
         assert_eq!(lf["entities"][0].get("abstract_entity"), Some(&Value::Null));
+    }
+}
+
+// ---- the SHTOLO G.2: extensible enumeration and select folding ----
+
+/// Parses `SELF <> item;` inside a TYPE wrapper and returns the wire
+/// WhereRule (the enumeration exclusion), re-id'd.
+fn enumeration_exclusion_rule(id: &str, item: &str) -> Option<Value> {
+    let snippet = format!(
+        "SCHEMA __to__;\nTYPE __t__ = ENUMERATION OF (dummy);\nWHERE\n  {id}: SELF <> {item};\nEND_TYPE;\nEND_SCHEMA;\n"
+    );
+    let tree = ParsedTree::parse(&snippet).ok()?;
+    let wire = tree.to_model_json("snippet.exp").ok()?;
+    let mut rule = wire.pointer("/schemas/0/types/0/where_rules/0").cloned()?;
+    if let Some(obj) = rule.as_object_mut() {
+        obj.insert("id".into(), Value::from(id));
+    }
+    Some(rule)
+}
+
+/// Parses `NOT ('base.item' IN TYPEOF(SELF));` inside a TYPE wrapper
+/// and returns the wire WhereRule (the select exclusion), re-id'd.
+fn select_exclusion_rule(id: &str, base_ref: &str, item: &str) -> Option<Value> {
+    let upper = item.to_uppercase();
+    let snippet = format!(
+        "SCHEMA __to__;\nTYPE __t__ = SELECT (dummy);\nWHERE\n  {id}: NOT ('{base_ref}.{upper}' IN TYPEOF(SELF));\nEND_TYPE;\nEND_SCHEMA;\n"
+    );
+    let tree = ParsedTree::parse(&snippet).ok()?;
+    let wire = tree.to_model_json("snippet.exp").ok()?;
+    let mut rule = wire.pointer("/schemas/0/types/0/where_rules/0").cloned()?;
+    if let Some(obj) = rule.as_object_mut() {
+        obj.insert("id".into(), Value::from(id));
+    }
+    Some(rule)
+}
+
+/// G.2.1: an extensible ENUMERATION folds its extensions' items in,
+/// becomes non-extensible, and each extension type becomes a
+/// non-extensible enumeration of the full domain with a `SELF <>
+/// item` exclusion WHERE per item it added.
+pub fn resolve_extensible_enumerations(longform: &mut Value) {
+    let enum_items = |t: &Value| -> Vec<String> {
+        t.get("underlying_type")
+            .map(|ut| {
+                ut.get("items")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|i| i.get("id").and_then(Value::as_str))
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default()
+    };
+    let base_names: Vec<String> = longform
+        .get("types")
+        .and_then(Value::as_array)
+        .map(|types| {
+            types
+                .iter()
+                .filter(|t| {
+                    let ut = t.get("underlying_type");
+                    ut.map(|ut| {
+                        ut.get("_class")
+                            .and_then(Value::as_str)
+                            .is_some_and(|c| c.ends_with("::Enumeration"))
+                            && ut.get("extensible").and_then(Value::as_bool) == Some(true)
+                    })
+                    .unwrap_or(false)
+                })
+                .filter_map(|t| t.get("id").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for base_name in base_names {
+        // Collect first (immutable), then mutate: the base's merged
+        // domain and each extension's index, then one write per type.
+        let Some(types) = longform.get("types").and_then(Value::as_array) else {
+            break;
+        };
+        let Some(base_index) = types
+            .iter()
+            .position(|t| t.get("id").and_then(Value::as_str) == Some(base_name.as_str()))
+        else {
+            continue;
+        };
+        let base_ut = &types[base_index]["underlying_type"];
+        let mut merged: Vec<String> = base_ut
+            .get("items")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|i| i.get("id").and_then(Value::as_str))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut extensions: Vec<usize> = Vec::new();
+        for (i, t) in types.iter().enumerate() {
+            if i == base_index {
+                continue;
+            }
+            let Some(ut) = t.get("underlying_type") else {
+                continue;
+            };
+            let based_on_matches = ut.get("based_on").map(|b| {
+                b.get("id")
+                    .and_then(Value::as_str)
+                    .map(|id| id.eq_ignore_ascii_case(&base_name))
+                    .unwrap_or_else(|| {
+                        b.as_str()
+                            .is_some_and(|s| s.eq_ignore_ascii_case(&base_name))
+                    })
+            });
+            let is_plain_extension = ut
+                .get("_class")
+                .and_then(Value::as_str)
+                .is_some_and(|c| c.ends_with("::Enumeration"))
+                && ut.get("extensible").and_then(Value::as_bool) != Some(true)
+                && based_on_matches == Some(true);
+            if is_plain_extension {
+                extensions.push(i);
+                let items = ut.get("items").and_then(Value::as_array).map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|i| i.get("id").and_then(Value::as_str))
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                });
+                merged.extend(items.unwrap_or_default());
+            }
+        }
+        merged.dedup();
+
+        let mut plans: Vec<(usize, Vec<String>)> = Vec::new();
+        for i in &extensions {
+            let ext_items = types[*i]["underlying_type"]["items"]
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|i| i.get("id").and_then(Value::as_str))
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let exclusions: Vec<String> = merged
+                .iter()
+                .filter(|item| !ext_items.iter().any(|e| e.eq_ignore_ascii_case(item)))
+                .cloned()
+                .collect();
+            plans.push((*i, exclusions));
+        }
+
+        // One write per type against a fresh mutable borrow.
+        let Some(Value::Array(types)) = longform.get_mut("types") else {
+            break;
+        };
+        if let Some(base) = types.get_mut(base_index) {
+            if let Some(ut) = base.get_mut("underlying_type") {
+                let items: Vec<Value> = merged
+                    .iter()
+                    .map(|id| {
+                        serde_json::json!({ "_class": "Expressir::Model::DataTypes::EnumerationItem", "id": id })
+                    })
+                    .collect();
+                if let Some(obj) = ut.as_object_mut() {
+                    obj.insert("items".into(), Value::Array(items));
+                    obj.insert("extensible".into(), Value::from(false));
+                    obj.insert("based_on".into(), Value::Null);
+                }
+            }
+        }
+        for (i, exclusions) in plans {
+            let Some(ext) = types.get_mut(i) else {
+                continue;
+            };
+            if let Some(ut) = ext.get_mut("underlying_type") {
+                let items: Vec<Value> = merged
+                    .iter()
+                    .map(|id| {
+                        serde_json::json!({ "_class": "Expressir::Model::DataTypes::EnumerationItem", "id": id })
+                    })
+                    .collect();
+                if let Some(obj) = ut.as_object_mut() {
+                    obj.insert("items".into(), Value::Array(items));
+                }
+            }
+            let rules: Vec<Value> = exclusions
+                .iter()
+                .enumerate()
+                .filter_map(|(i, item)| enumeration_exclusion_rule(&format!("wr{}", i + 1), item))
+                .collect();
+            if let Some(obj) = ext.as_object_mut() {
+                obj.insert("where_rules".into(), Value::Array(rules));
+            }
+        }
+    }
+}
+
+/// G.2.2/G.2.4: every extensible/extending SELECT becomes a
+/// non-extensible select whose items are the full domain in longform
+/// scope; chains fold in dependency order, an extending type's
+/// exclusions become `NOT ('base.item' IN TYPEOF(SELF))` WHEREs, and
+/// a GENERIC_ENTITY base folds in every entity the artifact carries.
+pub fn resolve_extensible_selects(longform: &mut Value) {
+    let select_ids: Vec<String> = longform
+        .get("types")
+        .and_then(Value::as_array)
+        .map(|types| {
+            types
+                .iter()
+                .filter(|t| {
+                    t.get("underlying_type")
+                        .and_then(|ut| ut.get("_class"))
+                        .and_then(Value::as_str)
+                        .is_some_and(|c| c.ends_with("::Select"))
+                })
+                .filter_map(|t| t.get("id").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let pending: Vec<String> = select_ids
+        .iter()
+        .cloned()
+        .filter(|id| select_pending(longform, id))
+        .collect();
+    for id in pending {
+        fold_select_node(longform, &id);
+    }
+}
+
+fn select_pending(longform: &Value, id: &str) -> bool {
+    longform
+        .get("types")
+        .and_then(Value::as_array)
+        .and_then(|types| {
+            types.iter().find_map(|t| {
+                if t.get("id").and_then(Value::as_str) != Some(id) {
+                    return None;
+                }
+                let ut = t.get("underlying_type")?;
+                Some(
+                    ut.get("extensible").and_then(Value::as_bool) == Some(true)
+                        || ut.get("based_on").map(|b| !b.is_null()).unwrap_or(false),
+                )
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn fold_select_node(longform: &mut Value, id: &str) {
+    // All lookups go through `longform` by id: a held &mut into the
+    // types array would pin the whole fold.
+    let (extensible, based_on_name, generic_entity) = {
+        let Some(t) = find_type(longform, id) else {
+            return;
+        };
+        let ut = t.get("underlying_type");
+        (
+            ut.and_then(|u| u.get("extensible"))
+                .and_then(Value::as_bool)
+                == Some(true),
+            ut.and_then(|u| u.get("based_on"))
+                .map(|b| {
+                    b.get("id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .unwrap_or_else(|| b.as_str().map(str::to_string).unwrap_or_default())
+                })
+                .filter(|s| !s.is_empty()),
+            ut.and_then(|u| u.get("generic_entity"))
+                .and_then(Value::as_bool)
+                == Some(true),
+        )
+    };
+    if !extensible && !based_on_name.is_some() {
+        return;
+    }
+
+    // GENERIC_ENTITY: the extenders are the entity types themselves
+    // (WG12 requirement, #32); flags stay as declared.
+    if generic_entity && based_on_name.is_none() {
+        let entity_refs: Vec<Value> = longform
+            .get("entities")
+            .and_then(Value::as_array)
+            .map(|entities| {
+                entities
+                    .iter()
+                    .filter_map(|e| e.get("id").and_then(Value::as_str))
+                    .map(|eid| {
+                        json!({ "_class": "Expressir::Model::References::SimpleReference", "id": eid })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(t) = find_type_mut(longform, id) {
+            if let Some(ut) = t.get_mut("underlying_type") {
+                if let Some(obj) = ut.as_object_mut() {
+                    obj.insert("items".into(), Value::Array(entity_refs));
+                }
+            }
+        }
+        return;
+    }
+
+    // Fold the BASE first: a chain resolves bottom-up, so an extending
+    // type that is itself extensible resolves against its base's
+    // folded domain.
+    let mut inherited: Vec<Value> = Vec::new();
+    if let Some(base_name) = &based_on_name {
+        if select_pending(longform, base_name) {
+            fold_select_node(longform, base_name);
+        }
+        if let Some(parent) = find_type(longform, base_name) {
+            if let Some(items) = parent
+                .get("underlying_type")
+                .and_then(|ut| ut.get("items"))
+                .and_then(Value::as_array)
+            {
+                inherited = items.clone();
+            }
+        }
+    }
+
+    // Extenders: every OTHER select whose based_on names this type.
+    let mut extenders: Vec<String> = Vec::new();
+    if let Some(types) = longform.get("types").and_then(Value::as_array) {
+        for t in types {
+            let Some(t_id) = t.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            if t_id.eq_ignore_ascii_case(id) {
+                continue;
+            }
+            let based_on = t.get("underlying_type").and_then(|ut| ut.get("based_on"));
+            let matches = based_on.map(|b| {
+                b.get("id")
+                    .and_then(Value::as_str)
+                    .map(|i| i.eq_ignore_ascii_case(id))
+                    .unwrap_or_else(|| b.as_str().is_some_and(|s| s.eq_ignore_ascii_case(id)))
+            });
+            if matches == Some(true) {
+                extenders.push(t_id.to_string());
+            }
+        }
+    }
+
+    let mut merged: Vec<Value> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let own_items: Vec<Value> = find_type(longform, id)
+        .and_then(|t| {
+            t.get("underlying_type")
+                .and_then(|ut| ut.get("items"))
+                .cloned()
+        })
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    let ext_items: Vec<Vec<Value>> = extenders
+        .iter()
+        .filter_map(|ext_id| {
+            find_type(longform, ext_id).and_then(|t| {
+                t.get("underlying_type")
+                    .and_then(|ut| ut.get("items"))
+                    .and_then(Value::as_array)
+                    .cloned()
+            })
+        })
+        .collect();
+    for item in own_items.iter().chain(ext_items.iter().flatten()) {
+        let key = item
+            .get("id")
+            .and_then(Value::as_str)
+            .map(|i| i.to_lowercase())
+            .unwrap_or_default();
+        if key.is_empty() || !seen.insert(key) {
+            continue;
+        }
+        merged.push(item.clone());
+    }
+
+    let base_ref = format!(
+        "{}.{}",
+        longform
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("LONGFORM")
+            .to_uppercase(),
+        id.to_uppercase()
+    );
+    if let Some(t) = find_type_mut(longform, id) {
+        if let Some(ut) = t.get_mut("underlying_type") {
+            if let Some(obj) = ut.as_object_mut() {
+                obj.insert("items".into(), Value::Array(merged.clone()));
+                obj.insert("extensible".into(), Value::from(false));
+                obj.insert("based_on".into(), Value::Null);
+            }
+        }
+    }
+
+    for ext_id in &extenders {
+        let keep: Vec<String> = find_type(longform, ext_id)
+            .and_then(|t| {
+                t.get("underlying_type")
+                    .and_then(|ut| ut.get("items"))
+                    .cloned()
+            })
+            .and_then(|v| v.as_array().cloned())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|i| i.get("id").and_then(Value::as_str))
+                    .map(|i| i.to_uppercase())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let exclusions: Vec<String> = merged
+            .iter()
+            .filter_map(|i| i.get("id").and_then(Value::as_str).map(str::to_string))
+            .filter(|i| !keep.contains(&i.to_uppercase()))
+            .collect();
+        let rules: Vec<Value> = exclusions
+            .iter()
+            .enumerate()
+            .filter_map(|(i, item)| select_exclusion_rule(&format!("wr{}", i + 1), &base_ref, item))
+            .collect();
+        if let Some(ext) = find_type_mut(longform, ext_id) {
+            if let Some(ut) = ext.get_mut("underlying_type") {
+                let items: Vec<Value> = merged
+                    .iter()
+                    .map(|i| {
+                        json!({ "_class": "Expressir::Model::References::SimpleReference",
+                                "id": i.get("id").and_then(Value::as_str).unwrap_or_default() })
+                    })
+                    .collect();
+                if let Some(obj) = ut.as_object_mut() {
+                    obj.insert("items".into(), Value::Array(items));
+                    obj.insert("extensible".into(), Value::from(false));
+                    obj.insert("based_on".into(), Value::Null);
+                }
+            }
+            if let Some(obj) = ext.as_object_mut() {
+                obj.insert("where_rules".into(), Value::Array(rules));
+            }
+        }
+    }
+}
+
+fn find_type<'a>(longform: &'a Value, id: &str) -> Option<&'a Value> {
+    longform
+        .get("types")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|t| {
+            t.get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|i| i.eq_ignore_ascii_case(id))
+        })
+}
+
+fn find_type_mut<'a>(longform: &'a mut Value, id: &str) -> Option<&'a mut Value> {
+    longform
+        .get_mut("types")
+        .and_then(Value::as_array_mut)?
+        .iter_mut()
+        .find(|t| {
+            t.get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|i| i.eq_ignore_ascii_case(id))
+        })
+}
+
+#[cfg(test)]
+mod extensible_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn select_type(id: &str, extensible: bool, based_on: Option<&str>, items: &[&str]) -> Value {
+        let mut ut = json!({
+            "_class": "Expressir::Model::DataTypes::Select",
+            "items": items.iter().map(|i| {
+                serde_json::json!({ "_class": "Expressir::Model::References::SimpleReference", "id": i })
+            }).collect::<Vec<_>>()
+        });
+        if extensible {
+            ut["extensible"] = json!(true);
+        }
+        if let Some(b) = based_on {
+            ut["based_on"] = serde_json::json!(
+                { "_class": "Expressir::Model::References::SimpleReference", "id": b }
+            );
+        }
+        json!({ "_class": "Expressir::Model::Declarations::Type", "id": id, "underlying_type": ut })
+    }
+
+    #[test]
+    fn select_chains_fold_with_exclusions() {
+        let mut lf = json!({
+            "_class": "Expressir::Model::Declarations::Schema", "id": "longform",
+            "types": [
+                select_type("base_select", true, None, &["a", "b"]),
+                select_type("ext_select", false, Some("base_select"), &["b", "c"])
+            ]
+        });
+        resolve_extensible_selects(&mut lf);
+        let types = lf.get("types").and_then(Value::as_array).unwrap();
+        let base = types.iter().find(|t| t["id"] == "base_select").unwrap();
+        let items: Vec<&str> = base["underlying_type"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(items, ["a", "b", "c"]);
+        assert_eq!(base["underlying_type"]["extensible"], json!(false));
+
+        let ext = types.iter().find(|t| t["id"] == "ext_select").unwrap();
+        let ext_items: Vec<&str> = ext["underlying_type"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ext_items, ["a", "b", "c"]);
+        // The extension keeps its added item, excludes the inherited ones.
+        let rules = ext["where_rules"].as_array().unwrap();
+        // The extension keeps its own b and c; only the inherited a
+        // becomes an exclusion.
+        assert_eq!(rules.len(), 1);
+    }
+
+    #[test]
+    fn generic_entity_selects_fold_in_every_entity() {
+        let mut lf = json!({
+            "_class": "Expressir::Model::Declarations::Schema", "id": "longform",
+            "entities": [
+                { "_class": "Expressir::Model::Declarations::Entity", "id": "one" },
+                { "_class": "Expressir::Model::Declarations::Entity", "id": "two" }
+            ],
+            "types": [ {
+                "_class": "Expressir::Model::Declarations::Type", "id": "any_thing",
+                "underlying_type": { "_class": "Expressir::Model::DataTypes::Select",
+                                     "extensible": true, "generic_entity": true, "items": [] }
+            } ]
+        });
+        resolve_extensible_selects(&mut lf);
+        let t = &lf["types"][0];
+        let items = t["underlying_type"]["items"].as_array().unwrap();
+        let ids: Vec<&str> = items.iter().map(|i| i["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["one", "two"]);
+    }
+
+    #[test]
+    fn extensible_enumerations_fold_with_exclusions() {
+        let mut lf = json!({
+            "_class": "Expressir::Model::Declarations::Schema", "id": "longform",
+            "types": [
+                { "_class": "Expressir::Model::Declarations::Type", "id": "colors",
+                  "underlying_type": { "_class": "Expressir::Model::DataTypes::Enumeration",
+                                       "extensible": true,
+                                       "items": [ { "id": "red" }, { "id": "green" } ] } },
+                { "_class": "Expressir::Model::Declarations::Type", "id": "colors_ext",
+                  "underlying_type": { "_class": "Expressir::Model::DataTypes::Enumeration",
+                                       "based_on": { "_class": "Expressir::Model::References::SimpleReference",
+                                                     "id": "colors" },
+                                       "items": [ { "id": "blue" } ] } }
+            ]
+        });
+        resolve_extensible_enumerations(&mut lf);
+        let types = lf.get("types").and_then(Value::as_array).unwrap();
+        let base = &types[0];
+        let items: Vec<&str> = base["underlying_type"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(items, ["red", "green", "blue"]);
+        assert_eq!(base["underlying_type"]["extensible"], json!(false));
+        let ext = &types[1];
+        let rules = ext["where_rules"].as_array().unwrap();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0]["id"], json!("wr1"));
     }
 }
