@@ -75,7 +75,7 @@ pub fn closure(root_id: &str, repository: &Value) -> Vec<Section> {
     visited.sort_by_key(|s| {
         s.get("id")
             .and_then(Value::as_str)
-            .map(|id| lower(id))
+            .map(|id| id.to_lowercase())
             .unwrap_or_default()
     });
     visited
