@@ -299,6 +299,11 @@ mod bindings {
     }
 
     #[wasm_bindgen]
+    pub fn concat_schema(repository_wire: String, root_id: String) -> Result<String, String> {
+        super::concat_schema_json(repository_wire, root_id)
+    }
+
+    #[wasm_bindgen]
     pub fn parse_population(source: String) -> Result<String, String> {
         super::parse_population_json(source)
     }
