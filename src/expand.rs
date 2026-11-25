@@ -676,3 +676,389 @@ mod eliminate_tests {
         );
     }
 }
+
+// ---- the SHTOLO G.2: prune + the entity conversions ----
+
+/// Every declaration id of the longform (`visible_declaration_ids`).
+fn visible_ids(longform: &Value) -> std::collections::HashSet<String> {
+    all_decls(longform)
+        .into_iter()
+        .filter_map(decl_id)
+        .map(|id| id.to_lowercase())
+        .collect()
+}
+
+/// The reference id of a wire node: a plain string or a SimpleReference.
+fn reference_id(node: &Value) -> Option<&str> {
+    if let Some(name) = node.as_str() {
+        return Some(name);
+    }
+    // The ruby `ref.id` works on every node that carries one.
+    node.get("id").and_then(Value::as_str)
+}
+
+/// Collects `out` with the ids a wire node names at call sites or as
+/// references — FunctionCall's `function`, ProcedureCall's
+/// `procedure`, and ANY SimpleReference (a zero-argument function used
+/// bare parses as a plain reference; over-retaining is safe).
+fn collect_called(
+    node: &Value,
+    invocable: &std::collections::HashSet<String>,
+    out: &mut std::collections::HashSet<String>,
+) {
+    if let Value::Object(obj) = node {
+        let class = obj.get("_class").and_then(Value::as_str).unwrap_or("");
+        let id_key = if class.ends_with("::FunctionCall") {
+            Some("function")
+        } else if class.ends_with("::ProcedureCall") {
+            Some("procedure")
+        } else {
+            None
+        };
+        if let Some(key) = id_key {
+            if let Some(id) = reference_id(obj.get(key).unwrap_or(&Value::Null)) {
+                out.insert(id.to_lowercase());
+            }
+        }
+        if class.ends_with("::SimpleReference") {
+            if let Some(id) = obj.get("id").and_then(Value::as_str) {
+                out.insert(id.to_lowercase());
+            }
+        }
+        for (_key, value) in obj.iter() {
+            collect_called(value, invocable, out);
+        }
+    } else if let Value::Array(items) = node {
+        for item in items {
+            collect_called(item, invocable, out);
+        }
+    }
+}
+
+/// Prunes the longform (ruby `prune!`): rules whose parameter entities
+/// are invisible, select items pointing at invisible declarations (an
+/// emptied select dissolves the type's representation), and
+/// functions/procedures nothing calls, to fixpoint.
+pub fn prune(longform: &mut Value) {
+    let visible = visible_ids(longform);
+
+    if let Some(Value::Array(rules)) = longform.get_mut("rules") {
+        rules.retain(|rule| match rule.get("applies_to") {
+            Some(Value::Array(refs)) => refs
+                .iter()
+                .all(|r| reference_id(r).is_none_or(|id| visible.contains(&id.to_lowercase()))),
+            _ => true,
+        });
+    }
+
+    if let Some(Value::Array(types)) = longform.get_mut("types") {
+        for t in types.iter_mut() {
+            let Some(underlying) = t.get_mut("underlying_type") else {
+                continue;
+            };
+            let is_select = underlying
+                .get("_class")
+                .and_then(Value::as_str)
+                .is_some_and(|c| c.ends_with("::Select"));
+            if !is_select {
+                continue;
+            }
+            if let Some(Value::Array(items)) = underlying.get_mut("items") {
+                let before = items.len();
+                items.retain(|item| {
+                    item.get("id")
+                        .and_then(Value::as_str)
+                        .is_none_or(|id| visible.contains(&id.to_lowercase()))
+                });
+                // An emptied select disappears from the representation
+                // (annex G.1.9 s1/s2/s3 example).
+                if before > 0 && items.is_empty() {
+                    if let Some(obj) = t.as_object_mut() {
+                        obj.insert("underlying_type".into(), Value::Null);
+                    }
+                }
+            }
+        }
+        // An emptied select dissolves the type's representation; a type
+        // without an underlying_type drops from the artifact.
+        types.retain(|t| {
+            let ut = t.get("underlying_type");
+            !(ut.is_none_or(Value::is_null))
+        });
+    }
+
+    let invocable: std::collections::HashSet<String> = ["functions", "procedures"]
+        .iter()
+        .filter_map(|key| longform.get(*key).and_then(Value::as_array))
+        .flatten()
+        .filter_map(decl_id)
+        .map(|id| id.to_lowercase())
+        .collect();
+    loop {
+        let mut called = std::collections::HashSet::new();
+        collect_called(longform, &invocable, &mut called);
+        let mut dropped = false;
+        for key in ["functions", "procedures"] {
+            if let Some(Value::Array(list)) = longform.get_mut(key) {
+                let before = list.len();
+                list.retain(|item| {
+                    decl_id(item).is_some_and(|id| called.contains(&id.to_lowercase()))
+                });
+                dropped |= list.len() != before;
+            }
+        }
+        if !dropped {
+            break;
+        }
+    }
+}
+
+/// Reduces a supertype expression over the visible ids (ruby
+/// `reduce_supertype_expression`): invisible operands leave ONEOF,
+/// a single-operand ONEOF collapses, a nil side drops from AND/OR,
+/// and a vacuous expression returns None (the constraint deletes).
+fn reduce_supertype_expression(
+    expr: &Value,
+    visible: &std::collections::HashSet<String>,
+) -> Option<Value> {
+    let class = expr.get("_class").and_then(Value::as_str).unwrap_or("");
+    if class.ends_with("::OneofSupertypeExpression") {
+        let mut reduced = Vec::new();
+        for operand in expr
+            .get("operands")
+            .and_then(Value::as_array)
+            .unwrap_or(&Vec::new())
+        {
+            if let Some(r) = reduce_supertype_expression(operand, visible) {
+                reduced.push(r);
+            }
+        }
+        return match reduced.len() {
+            0 => None,
+            1 => reduced.into_iter().next(),
+            _ => {
+                let mut copy = expr.clone();
+                if let Some(obj) = copy.as_object_mut() {
+                    obj.insert("operands".into(), Value::Array(reduced));
+                }
+                Some(copy)
+            }
+        };
+    }
+    if class.ends_with("::BinarySupertypeExpression") {
+        let left = expr
+            .get("operand1")
+            .map(|o| reduce_supertype_expression(o, visible))
+            .unwrap_or(None);
+        let right = expr
+            .get("operand2")
+            .map(|o| reduce_supertype_expression(o, visible))
+            .unwrap_or(None);
+        return match (left, right) {
+            (Some(l), Some(r)) => {
+                let mut copy = expr.clone();
+                if let Some(obj) = copy.as_object_mut() {
+                    obj.insert("operand1".into(), l);
+                    obj.insert("operand2".into(), r);
+                }
+                Some(copy)
+            }
+            (Some(l), None) => Some(l),
+            (None, Some(r)) => Some(r),
+            (None, None) => None,
+        };
+    }
+    if class.ends_with("::SimpleReference") {
+        if let Some(id) = expr.get("id").and_then(Value::as_str) {
+            if !visible.contains(&id.to_lowercase()) {
+                return None;
+            }
+        }
+    }
+    Some(expr.clone())
+}
+
+/// Prunes supertype expressions over the visible ids (ruby
+/// `prune_supertype_expressions!`): a vacuous expression deletes its
+/// constraint; total-over-only constraints stay for stage 2.
+pub fn prune_supertype_expressions(longform: &mut Value) {
+    let visible = visible_ids(longform);
+    let Some(Value::Array(constraints)) = longform.get_mut("subtype_constraints") else {
+        return;
+    };
+    let mut kept = Vec::new();
+    for constraint in constraints.iter_mut() {
+        match constraint.get("supertype_expression") {
+            None | Some(Value::Null) => kept.push(constraint.clone()),
+            Some(expr) => match reduce_supertype_expression(expr, &visible) {
+                None => {}
+                Some(reduced) => {
+                    if let Some(obj) = constraint.as_object_mut() {
+                        obj.insert("supertype_expression".into(), reduced);
+                    }
+                    kept.push(constraint.clone());
+                }
+            },
+        }
+    }
+    *constraints = kept;
+}
+
+/// The entity conversions (ruby `convert_abstract_entities!` /
+/// `convert_generic_entities!`): a bare ABSTRACT entity writes ABSTRACT
+/// SUPERTYPE in the longform (`abstract_entity` drops), and every
+/// GenericEntity in the tree becomes a plain Generic.
+pub fn convert_entities(longform: &mut Value) {
+    if let Some(Value::Array(entities)) = longform.get_mut("entities") {
+        for entity in entities {
+            if entity.get("abstract").and_then(Value::as_bool) == Some(true) {
+                if let Some(obj) = entity.as_object_mut() {
+                    obj.insert("abstract_entity".into(), Value::Null);
+                }
+            }
+        }
+    }
+    convert_generics(longform);
+}
+
+fn convert_generics(node: &mut Value) {
+    match node {
+        Value::Object(obj) => {
+            let is_generic_entity = obj
+                .get("_class")
+                .and_then(Value::as_str)
+                .is_some_and(|c| c.ends_with("::GenericEntity"));
+            if is_generic_entity {
+                let mut generic = serde_json::Map::new();
+                generic.insert(
+                    "_class".into(),
+                    Value::from("Expressir::Model::DataTypes::Generic"),
+                );
+                *node = Value::Object(generic);
+                return;
+            }
+            for (_key, value) in obj.iter_mut() {
+                convert_generics(value);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                convert_generics(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod prune_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn longform() -> Value {
+        json!({
+            "_class": "Expressir::Model::Declarations::Schema",
+            "id": "longform",
+            "entities": [
+                { "_class": "Expressir::Model::Declarations::Entity", "id": "piece",
+                  "attributes": [ { "type": { "_class": "Expressir::Model::References::SimpleReference", "id": "kind" } } ] }
+            ],
+            "types": [
+                { "_class": "Expressir::Model::Declarations::Type", "id": "kind",
+                  "underlying_type": { "_class": "Expressir::Model::DataTypes::Select",
+                                       "items": [ { "id": "piece" }, { "id": "gone" } ] } },
+                { "_class": "Expressir::Model::Declarations::Type", "id": "doomed",
+                  "underlying_type": { "_class": "Expressir::Model::DataTypes::Select",
+                                       "items": [ { "id": "gone" } ] } }
+            ],
+            "functions": [
+                { "_class": "Expressir::Model::Declarations::Function", "id": "used" },
+                { "_class": "Expressir::Model::Declarations::Function", "id": "unused",
+                  "statements": [ { "_class": "Expressir::Model::Statements::Call",
+                                    "procedure": { "_class": "Expressir::Model::References::SimpleReference", "id": "also_unused" } } ] }
+            ],
+            "procedures": [
+                { "_class": "Expressir::Model::Declarations::Procedure", "id": "also_unused" }
+            ],
+            "rules": [
+                { "_class": "Expressir::Model::Declarations::Rule", "id": "kept",
+                  "applies_to": [ { "id": "piece" } ],
+                  "where_rules": [ { "expression": { "_class": "Expressir::Model::Expressions::FunctionCall",
+                                                     "function": { "_class": "Expressir::Model::References::SimpleReference", "id": "used" } } } ] },
+                { "_class": "Expressir::Model::Declarations::Rule", "id": "dropped",
+                  "applies_to": [ { "id": "invisible" } ] }
+            ],
+            "subtype_constraints": []
+        })
+    }
+
+    #[test]
+    fn prune_drops_invisible_rules_and_select_items() {
+        let mut lf = longform();
+        prune(&mut lf);
+        let rules = lf.get("rules").and_then(Value::as_array).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].get("id").and_then(Value::as_str), Some("kept"));
+        let types = lf.get("types").and_then(Value::as_array).unwrap();
+        assert_eq!(types.len(), 1);
+        assert_eq!(types[0].get("id").and_then(Value::as_str), Some("kind"));
+        let items = types[0]["underlying_type"]["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].get("id").and_then(Value::as_str), Some("piece"));
+    }
+
+    #[test]
+    fn prune_drops_uncalled_callables_to_fixpoint() {
+        let mut lf = longform();
+        prune(&mut lf);
+        let functions = lf.get("functions").and_then(Value::as_array).unwrap();
+        assert_eq!(functions.len(), 1);
+        assert_eq!(functions[0].get("id").and_then(Value::as_str), Some("used"));
+        let procedures = lf.get("procedures").and_then(Value::as_array).unwrap();
+        assert!(procedures.is_empty());
+    }
+
+    #[test]
+    fn vacuous_supertype_expressions_delete_their_constraint() {
+        let mut lf = json!({
+            "entities": [ { "_class": "Expressir::Model::Declarations::Entity", "id": "piece" } ],
+            "subtype_constraints": [
+                { "_class": "Expressir::Model::Declarations::SubtypeConstraint", "id": "kept",
+                  "supertype_expression": { "_class": "Expressir::Model::SupertypeExpressions::OneofSupertypeExpression",
+                                            "operands": [ { "_class": "Expressir::Model::References::SimpleReference", "id": "piece" },
+                                                          { "_class": "Expressir::Model::References::SimpleReference", "id": "gone" } ] } },
+                { "_class": "Expressir::Model::Declarations::SubtypeConstraint", "id": "vacuous",
+                  "supertype_expression": { "_class": "Expressir::Model::SupertypeExpressions::OneofSupertypeExpression",
+                                            "operands": [ { "_class": "Expressir::Model::References::SimpleReference", "id": "gone" } ] } }
+            ]
+        });
+        prune_supertype_expressions(&mut lf);
+        let constraints = lf
+            .get("subtype_constraints")
+            .and_then(Value::as_array)
+            .unwrap();
+        assert_eq!(constraints.len(), 1);
+        assert_eq!(
+            constraints[0].get("id").and_then(Value::as_str),
+            Some("kept")
+        );
+        // A single surviving operand collapses to the bare reference
+        // (ruby: reduced.one? ? reduced.first : reset_oneof(...)).
+        assert_eq!(
+            constraints[0]["supertype_expression"]
+                .get("id")
+                .and_then(Value::as_str),
+            Some("piece")
+        );
+    }
+
+    #[test]
+    fn abstract_entities_drop_the_bare_marker() {
+        let mut lf = json!({
+            "entities": [ { "_class": "Expressir::Model::Declarations::Entity", "id": "piece",
+                            "abstract": true, "abstract_entity": true } ]
+        });
+        convert_entities(&mut lf);
+        assert_eq!(lf["entities"][0].get("abstract_entity"), Some(&Value::Null));
+    }
+}
