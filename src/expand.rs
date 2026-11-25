@@ -1625,3 +1625,60 @@ mod extensible_tests {
         assert_eq!(rules[0]["id"], json!("wr1"));
     }
 }
+
+// ---- the SHTOLO orchestrator (the full stage order) + expose ----
+
+/// The provenance remark (ruby `add_provenance_remark!`, G.1.10): a
+/// `provenance` remark item listing every contributing schema, in
+/// alphabetical order, with each schema's version id when present.
+pub fn add_provenance(longform: &mut Value, sections: &[Section]) {
+    if sections.is_empty() {
+        return;
+    }
+    let mut names: Vec<&Section> = sections.iter().collect();
+    names.sort_by_key(|s| s.id.to_lowercase());
+    let mut remarks = vec!["Original 2003 schemas:".to_string()];
+    for section in names {
+        let line = match &section.version {
+            Some(version) => {
+                format!("schema = {} schema_version_id = '{}';", section.id, version)
+            }
+            None => format!("schema = {};", section.id),
+        };
+        remarks.push(line);
+    }
+    let provenance = json!({
+        "_class": "Expressir::Model::Declarations::RemarkItem",
+        "id": "provenance",
+        "remarks": remarks
+    });
+    let mut items = vec![provenance];
+    if let Some(existing) = longform
+        .get("remark_items")
+        .and_then(Value::as_array)
+        .cloned()
+    {
+        items.extend(existing);
+    }
+    if let Some(obj) = longform.as_object_mut() {
+        obj.insert("remark_items".into(), Value::Array(items));
+    }
+}
+
+/// The SHTOLO longform over a resolved repository wire — the full
+/// stage order the ruby Shtolo runs: the G.1 closure copy with the
+/// id munges, subtype-constraint elimination, prune, the supertype
+/// reductions, the entity conversions, the extensible
+/// enumeration/select folding, and the provenance remark.
+pub fn shtolo_flatten(root_id: &str, repository: &Value, longform_name: &str) -> Value {
+    let sections = closure(root_id, repository);
+    let mut longform = flatten(root_id, repository, longform_name);
+    eliminate_subtype_constraints(&mut longform);
+    prune(&mut longform);
+    prune_supertype_expressions(&mut longform);
+    convert_entities(&mut longform);
+    resolve_extensible_enumerations(&mut longform);
+    resolve_extensible_selects(&mut longform);
+    add_provenance(&mut longform, &sections);
+    longform
+}
