@@ -3,6 +3,7 @@
 //! closure of a root schema and the banner writer. The SHTOLO longform
 //! (flatten) builds on the closure.
 
+use crate::ParsedTree;
 use serde_json::Value;
 
 /// The wire reference of an interface's target: a resolved
@@ -502,5 +503,176 @@ mod flatten_tests {
             .filter_map(|e| e.get("id").and_then(Value::as_str))
             .collect();
         assert_eq!(ids, ["dog"]);
+    }
+}
+
+// ---- the SHTOLO G.2: subtype-constraint elimination ----
+
+/// Eliminates a longform's SUBTYPE_CONSTRAINTs (ruby
+/// `eliminate_subtype_constraints!`): each constraint ANDOR-combines
+/// its supertype expression into the `applies_to` entity's own,
+/// propagates ABSTRACT, turns TOTAL_OVER into a `total_over_<id>`
+/// rule (the annex snippet, parsed through the engine), and empties
+/// the constraint list.
+pub fn eliminate_subtype_constraints(longform: &mut Value) {
+    let Some(Value::Array(constraints)) = longform.get_mut("subtype_constraints") else {
+        return;
+    };
+    let constraints = std::mem::take(constraints);
+    let mut extra_rules: Vec<Value> = Vec::new();
+
+    for sc in &constraints {
+        let Some(applies) = sc.get("applies_to") else {
+            continue;
+        };
+        let Some(applies_id) = applies.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(Value::Array(entities)) = longform.get_mut("entities") else {
+            continue;
+        };
+        let Some(entity) = entities.iter_mut().find(|e| {
+            e.get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| id.eq_ignore_ascii_case(applies_id))
+        }) else {
+            continue;
+        };
+
+        if let Some(expr) = sc.get("supertype_expression").filter(|v| !v.is_null()) {
+            let combined = match entity.get_mut("supertype_expression") {
+                Some(existing) if !existing.is_null() => {
+                    let mut binary = serde_json::Map::new();
+                    binary.insert(
+                        "_class".into(),
+                        Value::from(
+                            "Expressir::Model::SupertypeExpressions::BinarySupertypeExpression",
+                        ),
+                    );
+                    binary.insert("operator".into(), Value::from("ANDOR"));
+                    binary.insert("operand1".into(), existing.clone());
+                    binary.insert("operand2".into(), expr.clone());
+                    Value::Object(binary)
+                }
+                _ => expr.clone(),
+            };
+            if let Some(obj) = entity.as_object_mut() {
+                obj.insert("supertype_expression".into(), combined);
+            }
+        }
+        if sc.get("abstract").and_then(Value::as_bool) == Some(true) {
+            if let Some(obj) = entity.as_object_mut() {
+                obj.insert("abstract".into(), Value::from(true));
+            }
+        }
+
+        let total_over = sc
+            .get("total_over")
+            .and_then(Value::as_array)
+            .map(|r| {
+                r.iter()
+                    .filter_map(|t| t.get("id").and_then(Value::as_str))
+                    .map(|id| id.to_uppercase())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if total_over.is_empty() {
+            continue;
+        }
+        let sc_id = sc.get("id").and_then(Value::as_str).unwrap_or("sc");
+        let rule_name = format!("total_over_{sc_id}");
+        let supertype = applies_id.to_uppercase();
+        let supertype_lower = supertype.to_lowercase();
+        let longform_upper = longform
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("LONGFORM")
+            .to_uppercase();
+        let target = total_over.first().cloned().unwrap_or_default();
+        let snippet = format!(
+            "SCHEMA __to__;\nRULE {rule_name} FOR ({supertype});\nWHERE\n  wr1: SIZEOF(QUERY({supertype_lower}_i <* {supertype} |\n    SIZEOF(['{longform_upper}.{target}'] * TYPEOF({supertype_lower}_i)) = 0)) = 0;\nEND_RULE;\nEND_SCHEMA;\n"
+        );
+        if let Ok(tree) = ParsedTree::parse(&snippet) {
+            if let Ok(wire) = tree.to_model_json("snippet.exp") {
+                if let Some(rule) = wire.pointer("/schemas/0/rules/0").cloned() {
+                    let mut rule = rule;
+                    if let Some(slot) = rule.get_mut("id") {
+                        *slot = Value::from(rule_name.clone());
+                    }
+                    extra_rules.push(rule);
+                }
+            }
+        }
+    }
+
+    if let Some(obj) = longform.as_object_mut() {
+        if let Some(Value::Array(rules)) = obj.get_mut("rules") {
+            rules.extend(extra_rules);
+        } else if !extra_rules.is_empty() {
+            obj.insert("rules".into(), Value::Array(extra_rules));
+        }
+        obj.insert("subtype_constraints".into(), Value::Array(Vec::new()));
+    }
+}
+
+#[cfg(test)]
+mod eliminate_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn longform() -> Value {
+        json!({
+            "_class": "Expressir::Model::Declarations::Schema",
+            "id": "longform",
+            "subtype_constraints": [
+                { "_class": "Expressir::Model::Declarations::SubtypeConstraint",
+                  "id": "sc_a", "applies_to": { "id": "piece" },
+                  "abstract": true,
+                  "supertype_expression": { "_class": "Expressir::Model::SupertypeExpressions::OneofSupertypeExpression",
+                                            "operands": [ { "_class": "Expressir::Model::References::SimpleReference", "id": "a" } ] },
+                  "total_over": [ { "id": "piece" } ] }
+            ],
+            "entities": [
+                { "_class": "Expressir::Model::Declarations::Entity", "id": "piece" }
+            ],
+            "rules": []
+        })
+    }
+
+    #[test]
+    fn constraints_fold_into_the_entity() {
+        let mut lf = longform();
+        eliminate_subtype_constraints(&mut lf);
+        assert_eq!(
+            lf.get("subtype_constraints")
+                .and_then(Value::as_array)
+                .unwrap()
+                .len(),
+            0
+        );
+        let piece = &lf["entities"][0];
+        assert_eq!(piece.get("abstract").and_then(Value::as_bool), Some(true));
+        let expr = piece.get("supertype_expression").unwrap();
+        assert!(expr
+            .get("_class")
+            .and_then(Value::as_str)
+            .is_some_and(|c| c.ends_with("OneofSupertypeExpression")));
+    }
+
+    #[test]
+    fn total_over_becomes_a_rule() {
+        let mut lf = longform();
+        eliminate_subtype_constraints(&mut lf);
+        let rules = lf.get("rules").and_then(Value::as_array).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(
+            rules[0].get("id").and_then(Value::as_str),
+            Some("total_over_sc_a")
+        );
+        // The wire's applies_to is an array of references.
+        assert_eq!(
+            rules[0]["applies_to"][0].get("id").and_then(Value::as_str),
+            Some("PIECE")
+        );
     }
 }
