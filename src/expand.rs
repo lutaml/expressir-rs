@@ -198,3 +198,309 @@ mod tests {
         assert!(out.contains("SCHEMA a;\nEND_SCHEMA;\n"));
     }
 }
+
+// ---- the SHTOLO longform (G.1 stage 1) ----
+
+/// The declaration collections a schema contributes to a longform, in
+/// the artifact order the ruby Shtolo writes.
+const DECL_COLLECTIONS: [&str; 7] = [
+    "constants",
+    "types",
+    "entities",
+    "subtype_constraints",
+    "functions",
+    "procedures",
+    "rules",
+];
+
+/// All declarations of a schema wire, in the artifact order.
+fn all_decls(schema: &Value) -> Vec<&Value> {
+    DECL_COLLECTIONS
+        .iter()
+        .filter_map(|key| schema.get(*key).and_then(Value::as_array))
+        .flatten()
+        .collect()
+}
+
+fn decl_id(decl: &Value) -> Option<&str> {
+    decl.get("id").and_then(Value::as_str)
+}
+
+/// G.NM.1 case-fold: the replacement carries the munge map's casing
+/// unless the current id is SHOUTING (ruby preserve_case).
+fn preserve_case(current: &str, new: &str) -> String {
+    if current == current.to_uppercase() && current.chars().any(|c| c.is_alphabetic()) {
+        new.to_uppercase()
+    } else {
+        new.to_string()
+    }
+}
+
+/// Rewrites every SimpleReference id on `node` through `map`
+/// (`rewrite_references` over the wire): the walk descends into every
+/// object and array, and only reference nodes carry the replacement.
+fn rewrite_references(node: &mut Value, map: &std::collections::HashMap<String, String>) {
+    match node {
+        Value::Object(map_obj) => {
+            let is_ref = map_obj
+                .get("_class")
+                .and_then(Value::as_str)
+                .is_some_and(|c| c.ends_with("::SimpleReference"));
+            if is_ref {
+                if let Some(id) = map_obj.get("id").and_then(Value::as_str) {
+                    if let Some(to) = map.get(&id.to_lowercase()) {
+                        let preserved = preserve_case(id, to);
+                        map_obj.insert("id".into(), Value::from(preserved));
+                    }
+                }
+            }
+            for (_key, value) in map_obj.iter_mut() {
+                rewrite_references(value, map);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                rewrite_references(item, map);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The interface alias map of a schema wire: `USE FROM s (orig AS
+/// alias)` items map alias → original (G.1.3).
+fn renames_for(schema: &Value) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    if let Some(Value::Array(interfaces)) = schema.get("interfaces") {
+        for iface in interfaces {
+            if let Some(Value::Array(items)) = iface.get("items") {
+                for item in items {
+                    let alias = item.get("id").and_then(Value::as_str);
+                    let original = match item.get("ref") {
+                        Some(Value::String(name)) => Some(name.as_str()),
+                        Some(reference) => reference.get("id").and_then(Value::as_str),
+                        None => None,
+                    };
+                    if let (Some(alias), Some(original)) = (alias, original) {
+                        if !alias.eq_ignore_ascii_case(original) {
+                            out.push((alias.to_lowercase(), original.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Builds the G.1 stage-1 longform schema wire: the closure copied in
+/// order [root, then the rest], every clashing declaration id munged
+/// `<schema>_dot_<id>` (G.NM.1), interface aliases resolved, and every
+/// reference rewritten through the schema's resolution order. The G.2
+/// transformations (extensible folding, subtype-constraint
+/// elimination, abstract-entity conversion, prune, provenance) are the
+/// ruby Shtolo's later stages, not this slice.
+pub fn flatten(root_id: &str, repository: &Value, longform_name: &str) -> Value {
+    let lower = |s: &str| s.to_lowercase();
+
+    // The closure (same walk as `closure`), ordered [root, then rest].
+    let by_name: std::collections::HashMap<String, &Value> = repository
+        .get("schemas")
+        .and_then(Value::as_array)
+        .map(|schemas| {
+            schemas
+                .iter()
+                .filter_map(|s| s.get("id").and_then(Value::as_str).map(|id| (lower(id), s)))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut order: Vec<&Value> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<&Value> = std::collections::VecDeque::new();
+    if let Some(root) = by_name.get(root_id.to_lowercase().as_str()) {
+        queue.push_back(*root);
+    }
+    while let Some(schema) = queue.pop_front() {
+        let Some(id) = schema.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        if !seen.insert(lower(id)) {
+            continue;
+        }
+        order.push(schema);
+        if let Some(Value::Array(interfaces)) = schema.get("interfaces") {
+            for iface in interfaces {
+                if let Some(name) = interface_target_name(iface) {
+                    if let Some(target) = by_name.get(name.to_lowercase().as_str()) {
+                        queue.push_back(target);
+                    }
+                }
+            }
+        }
+    }
+
+    // G.NM.1: the clash set over the whole closure, then the munge map.
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for schema in &order {
+        for decl in all_decls(schema) {
+            if let Some(id) = decl_id(decl) {
+                *counts.entry(lower(id)).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut global: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut own_by_schema: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, String>,
+    > = std::collections::HashMap::new();
+    for schema in &order {
+        let Some(schema_id) = schema.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let mut own = std::collections::HashMap::new();
+        for decl in all_decls(schema) {
+            let Some(id) = decl_id(decl) else {
+                continue;
+            };
+            let key = lower(id);
+            let final_id = if counts[&key] > 1 {
+                let munged = format!("{}_dot_{}", lower(schema_id), id);
+                global.insert(key.clone(), munged.clone());
+                munged
+            } else {
+                id.to_string()
+            };
+            own.insert(key, final_id);
+        }
+        own_by_schema.insert(lower(schema_id), own);
+    }
+
+    // Copy each schema's declarations through its resolution order.
+    let mut buckets: std::collections::HashMap<&str, Vec<Value>> = std::collections::HashMap::new();
+    for schema in &order {
+        let Some(schema_id) = schema.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let own = own_by_schema
+            .get(&lower(schema_id))
+            .cloned()
+            .unwrap_or_default();
+        let mut full = global.clone();
+        for (key, final_id) in &own {
+            full.insert(key.clone(), final_id.clone());
+        }
+        for (alias, original) in renames_for(schema) {
+            let resolved = own
+                .get(&original.to_lowercase())
+                .cloned()
+                .or_else(|| global.get(&original.to_lowercase()).cloned())
+                .unwrap_or(original);
+            full.insert(alias, resolved);
+        }
+
+        for key in DECL_COLLECTIONS {
+            if let Some(Value::Array(decls)) = schema.get(key) {
+                for decl in decls {
+                    let mut copy = decl.clone();
+                    rewrite_references(&mut copy, &full);
+                    if let Some(id) = decl_id(decl) {
+                        if let Some(final_id) = own.get(&lower(id)) {
+                            if let Some(slot) = copy.get_mut("id") {
+                                *slot = Value::from(preserve_case(id, final_id));
+                            }
+                        }
+                    }
+                    buckets.entry(key).or_default().push(copy);
+                }
+            }
+        }
+    }
+
+    // The longform schema: interfaces dissolved (G.1.2).
+    let mut out = serde_json::Map::new();
+    out.insert(
+        "_class".into(),
+        Value::from("Expressir::Model::Declarations::Schema"),
+    );
+    out.insert("id".into(), Value::from(longform_name));
+    out.insert("interfaces".into(), Value::Array(Vec::new()));
+    for key in DECL_COLLECTIONS {
+        let items = buckets.remove(key).unwrap_or_default();
+        out.insert((*key).to_string(), Value::Array(items));
+    }
+    Value::Object(out)
+}
+
+#[cfg(test)]
+mod flatten_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn repository() -> Value {
+        json!({
+            "schemas": [
+                { "id": "farming", "interfaces": [
+                    { "_class": "Expressir::Model::Declarations::Interface",
+                      "schema": { "_class": "Expressir::Model::References::SimpleReference", "id": "pet_shows" },
+                      "items": [ { "id": "dog", "ref": { "_class": "Expressir::Model::References::SimpleReference", "id": "dog" } } ] } ],
+                  "entities": [
+                    { "_class": "Expressir::Model::Declarations::Entity", "id": "dog",
+                      "attributes": [] },
+                    { "_class": "Expressir::Model::Declarations::Entity", "id": "dog_house",
+                      "attributes": [ { "type": { "_class": "Expressir::Model::References::SimpleReference", "id": "dog" } } ] } ] },
+                { "id": "pet_shows", "entities": [ { "_class": "Expressir::Model::Declarations::Entity", "id": "dog",
+                                                     "attributes": [] } ] }
+            ]
+        })
+    }
+
+    #[test]
+    fn clashing_ids_munge_with_the_schema_prefix() {
+        // G.NM.1: both `dog`s clash, so both carry `<schema>_dot_<id>`.
+        let lf = flatten("farming", &repository(), "longform");
+        let entities = lf.get("entities").and_then(Value::as_array).unwrap();
+        let ids: Vec<&str> = entities
+            .iter()
+            .filter_map(|e| e.get("id").and_then(Value::as_str))
+            .collect();
+        // G.NM.1: both `dog`s munge; the unique `dog_house` keeps its name.
+        assert!(ids.contains(&"farming_dot_dog"));
+        assert!(ids.contains(&"pet_shows_dot_dog"));
+        assert!(ids.contains(&"dog_house"));
+        // The aliased USE import resolves through the original's final id.
+        // The attribute inside farming's dog_house references farming's
+        // own dog — resolved through farming's own map, not the alias.
+        let house = entities
+            .iter()
+            .find(|e| e.get("id").and_then(Value::as_str) == Some("dog_house"))
+            .unwrap();
+        let attr_type = &house["attributes"][0]["type"];
+        assert_eq!(
+            attr_type.get("id").and_then(Value::as_str),
+            Some("farming_dot_dog")
+        );
+    }
+
+    #[test]
+    fn interfaces_dissolve() {
+        let lf = flatten("farming", &repository(), "longform");
+        assert_eq!(
+            lf.get("interfaces")
+                .and_then(Value::as_array)
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn unique_ids_keep_their_names() {
+        let lf = flatten("pet_shows", &repository(), "longform");
+        let entities = lf.get("entities").and_then(Value::as_array).unwrap();
+        let ids: Vec<&str> = entities
+            .iter()
+            .filter_map(|e| e.get("id").and_then(Value::as_str))
+            .collect();
+        assert_eq!(ids, ["dog"]);
+    }
+}
