@@ -380,3 +380,21 @@ mod bindings {
         super::validate_population_semantic_json(schema_wire, schema_index, source)
     }
 }
+
+/// The interface closure of `root_id` over a resolved repository wire,
+/// plus the concatenated-artifact text — the closure sections embed the
+/// files the wire names, so this form is for in-memory wires whose
+/// `file` entries are readable at the caller (#636). Returns the ids
+/// and the artifact as JSON `{ "ids": [...], "artifact": "..." }`.
+pub fn concat_schema_json(repository_wire: String, root_id: String) -> Result<String, String> {
+    let wire: serde_json::Value =
+        serde_json::from_str(&repository_wire).map_err(|e| format!("wire json: {e}"))?;
+    let sections = crate::expand::closure(&root_id, &wire);
+    let artifact = crate::expand::write(&sections)?;
+    let ids: Vec<serde_json::Value> = sections
+        .iter()
+        .map(|s| serde_json::Value::from(s.id.as_str()))
+        .collect();
+    serde_json::to_string(&serde_json::json!({ "ids": ids, "artifact": artifact }))
+        .map_err(|e| format!("serialize: {e}"))
+}
