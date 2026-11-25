@@ -5,7 +5,6 @@
 
 use crate::ParsedTree;
 use serde_json::Value;
-use serde_json::Value as JValue;
 
 // json! through the fully qualified macro path works on 2018+.
 use serde_json::json;
@@ -705,11 +704,7 @@ fn reference_id(node: &Value) -> Option<&str> {
 /// references — FunctionCall's `function`, ProcedureCall's
 /// `procedure`, and ANY SimpleReference (a zero-argument function used
 /// bare parses as a plain reference; over-retaining is safe).
-fn collect_called(
-    node: &Value,
-    invocable: &std::collections::HashSet<String>,
-    out: &mut std::collections::HashSet<String>,
-) {
+fn collect_called(node: &Value, out: &mut std::collections::HashSet<String>) {
     if let Value::Object(obj) = node {
         let class = obj.get("_class").and_then(Value::as_str).unwrap_or("");
         let id_key = if class.ends_with("::FunctionCall") {
@@ -730,11 +725,11 @@ fn collect_called(
             }
         }
         for (_key, value) in obj.iter() {
-            collect_called(value, invocable, out);
+            collect_called(value, out);
         }
     } else if let Value::Array(items) = node {
         for item in items {
-            collect_called(item, invocable, out);
+            collect_called(item, out);
         }
     }
 }
@@ -791,16 +786,9 @@ pub fn prune(longform: &mut Value) {
         });
     }
 
-    let invocable: std::collections::HashSet<String> = ["functions", "procedures"]
-        .iter()
-        .filter_map(|key| longform.get(*key).and_then(Value::as_array))
-        .flatten()
-        .filter_map(decl_id)
-        .map(|id| id.to_lowercase())
-        .collect();
     loop {
         let mut called = std::collections::HashSet::new();
-        collect_called(longform, &invocable, &mut called);
+        collect_called(longform, &mut called);
         let mut dropped = false;
         for key in ["functions", "procedures"] {
             if let Some(Value::Array(list)) = longform.get_mut(key) {
@@ -1105,22 +1093,6 @@ fn select_exclusion_rule(id: &str, base_ref: &str, item: &str) -> Option<Value> 
 /// non-extensible enumeration of the full domain with a `SELF <>
 /// item` exclusion WHERE per item it added.
 pub fn resolve_extensible_enumerations(longform: &mut Value) {
-    let enum_items = |t: &Value| -> Vec<String> {
-        t.get("underlying_type")
-            .map(|ut| {
-                ut.get("items")
-                    .and_then(Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(|i| i.get("id").and_then(Value::as_str))
-                            .map(str::to_string)
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            })
-            .unwrap_or_default()
-    };
     let base_names: Vec<String> = longform
         .get("types")
         .and_then(Value::as_array)
@@ -1272,7 +1244,8 @@ pub fn resolve_extensible_enumerations(longform: &mut Value) {
 /// G.2.2/G.2.4: every extensible/extending SELECT becomes a
 /// non-extensible select whose items are the full domain in longform
 /// scope; chains fold in dependency order, an extending type's
-/// exclusions become `NOT ('base.item' IN TYPEOF(SELF))` WHEREs, and
+/// exclusions become `NOT ('base.item' IN TYPEOF(SELF))` WHERE
+/// clauses, and
 /// a GENERIC_ENTITY base folds in every entity the artifact carries.
 pub fn resolve_extensible_selects(longform: &mut Value) {
     let select_ids: Vec<String> = longform
@@ -1293,8 +1266,8 @@ pub fn resolve_extensible_selects(longform: &mut Value) {
         .unwrap_or_default();
     let pending: Vec<String> = select_ids
         .iter()
-        .cloned()
         .filter(|id| select_pending(longform, id))
+        .cloned()
         .collect();
     for id in pending {
         fold_select_node(longform, &id);
@@ -1377,21 +1350,19 @@ fn fold_select_node(longform: &mut Value, id: &str) {
 
     // Fold the BASE first: a chain resolves bottom-up, so an extending
     // type that is itself extensible resolves against its base's
-    // folded domain.
-    let mut inherited: Vec<Value> = Vec::new();
+    // folded domain. The folded domain is read back through find_type
+    // below; the delta this type contributes is own + extenders.
     if let Some(base_name) = &based_on_name {
         if select_pending(longform, base_name) {
             fold_select_node(longform, base_name);
         }
-        if let Some(parent) = find_type(longform, base_name) {
-            if let Some(items) = parent
+        let _ = find_type(longform, base_name).map(|parent| {
+            parent
                 .get("underlying_type")
                 .and_then(|ut| ut.get("items"))
                 .and_then(Value::as_array)
-            {
-                inherited = items.clone();
-            }
-        }
+                .map(|items| items.len())
+        });
     }
 
     // Extenders: every OTHER select whose based_on names this type.
