@@ -467,3 +467,28 @@ pub unsafe extern "C" fn expr_string_free(ptr: *mut c_char) {
         drop(unsafe { CString::from_raw(ptr) });
     }
 }
+
+/// The concatenated artifact for `root_id` over a resolved repository
+/// wire (#636): `{ "ids": [...], "artifact": "..." }` — the sections
+/// embed the files the wire names, readable at the caller.
+#[no_mangle]
+pub extern "C" fn expr_concat_schema(
+    repository_wire: *const c_char,
+    root_id: *const c_char,
+) -> *mut c_char {
+    let Some(repository_wire) = input(repository_wire) else {
+        set_error("repository_wire is NULL");
+        return std::ptr::null_mut();
+    };
+    let Some(root_id) = input(root_id) else {
+        set_error("root_id is NULL");
+        return std::ptr::null_mut();
+    };
+    match crate::wasm::concat_schema_json(repository_wire, root_id) {
+        Ok(json) => out(json),
+        Err(err) => {
+            set_error(&err);
+            std::ptr::null_mut()
+        }
+    }
+}
