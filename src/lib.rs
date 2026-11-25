@@ -17,6 +17,7 @@ pub mod eval;
 pub mod eval_builtins;
 pub mod eval_interpreter;
 pub mod eval_rules;
+pub mod expand;
 pub mod extract;
 pub mod ffi;
 pub mod format_len;
