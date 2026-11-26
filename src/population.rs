@@ -98,6 +98,150 @@ pub fn parse_population(input: &str) -> Result<Population, String> {
     population_from_tree(&tree)
 }
 
+/// One resync span: the junk the R2 rounds skipped over to keep the
+/// spine parsing (expressir#627, the parsanol portable/dynamic layer
+/// adopted for P21).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ResyncSpan {
+    pub offset: usize,
+    pub end: usize,
+}
+
+/// The recovery envelope's outcome. On well-formed input the
+/// population builds exactly as the strict path does. On malformed
+/// input the envelope is failure forensics — the failure wire, how
+/// far the parse got, the spans the inferred/declared resync skipped,
+/// and the records the deepest repetition prefix had already matched —
+/// never a silently-repaired document.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecoveredPopulation {
+    pub ok: bool,
+    pub population: Option<Population>,
+    /// The failure wire: `offset`/`line`/`column`/`expected`.
+    pub error: Option<Value>,
+    /// The furthest input position any attempt matched.
+    pub consumed_upto: Option<u64>,
+    pub resyncs: Vec<ResyncSpan>,
+    /// Records/references recovered from the partial spine prefix.
+    pub partial_records: Vec<EntityRecord>,
+    pub partial_references: Vec<(u64, String)>,
+}
+
+/// Parses through the recovery envelope: identical to
+/// [`parse_population`] on well-formed input; on malformed input
+/// returns the forensics instead of the hard error.
+pub fn parse_population_recovering(input: &str) -> Result<RecoveredPopulation, String> {
+    let artifact = artifact()?;
+    let wire = artifact
+        .parse_shape_recovering("exchange_structure", input)
+        .map_err(|err| format!("p21 recovery: {err}"))?;
+
+    if wire.get("ok").and_then(Value::as_bool) == Some(true) {
+        let shape = wire
+            .get("shape")
+            .ok_or("recovery success wire missing its shape")?;
+        let population = population_from_tree(shape)?;
+        return Ok(RecoveredPopulation {
+            ok: true,
+            population: Some(population),
+            error: None,
+            consumed_upto: None,
+            resyncs: Vec::new(),
+            partial_records: Vec::new(),
+            partial_references: Vec::new(),
+        });
+    }
+
+    let mut partial_records = Vec::new();
+    let mut partial_references = Vec::new();
+    if let Some(partial) = wire.get("partial") {
+        // The partial spine is shaped like the repetition it stopped
+        // in: an array of spine iterations, possibly wrapped under the
+        // spine rule's name. Each iteration walks like a strict-tree
+        // instance; iterations the failed sequence left incomplete are
+        // skipped rather than fatal — this is a best-effort prefix.
+        let items: Vec<&Value> = match partial {
+            Value::Array(items) => items.iter().collect(),
+            Value::Object(map) => map.values().filter_map(Value::as_array).flatten().collect(),
+            _ => Vec::new(),
+        };
+        for item in items {
+            let mut sections = Vec::new();
+            collect_partial_instances(item, &mut sections);
+            for section in sections {
+                let body = section.get("data_section").unwrap_or(section);
+                if let Some(instances) = body.get("instance_list").and_then(Value::as_array) {
+                    for instance in instances {
+                        let _ =
+                            push_instance(instance, &mut partial_records, &mut partial_references);
+                    }
+                }
+                if let Some(instances) = section.get("instance_list").and_then(Value::as_array) {
+                    for instance in instances {
+                        let _ =
+                            push_instance(instance, &mut partial_records, &mut partial_references);
+                    }
+                }
+            }
+        }
+    }
+
+    let resyncs = wire
+        .get("recovered_spans")
+        .and_then(Value::as_array)
+        .map(|spans| {
+            spans
+                .iter()
+                .filter_map(|s| {
+                    Some(ResyncSpan {
+                        offset: s.get("offset")?.as_u64()? as usize,
+                        end: s.get("end")?.as_u64()? as usize,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(RecoveredPopulation {
+        ok: false,
+        population: None,
+        error: wire.get("error").cloned(),
+        consumed_upto: wire.get("consumed_upto").and_then(Value::as_u64),
+        resyncs,
+        partial_records,
+        partial_references,
+    })
+}
+
+/// Data-section-shaped subtrees under a partial spine item: either the
+/// item IS a section iteration (`data_section` body under the same
+/// name) or it wraps one. Best-effort — junk rounds leave odd shapes.
+fn collect_partial_instances<'a>(node: &'a Value, out: &mut Vec<&'a Value>) {
+    match node {
+        Value::Object(map) => {
+            if map.contains_key("instance_list") {
+                out.push(node);
+                return;
+            }
+            if map.contains_key("data_section")
+                && node.get("data_section").is_some_and(|b| b.is_object())
+            {
+                out.push(node);
+                return;
+            }
+            for value in map.values() {
+                collect_partial_instances(value, out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_partial_instances(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn leaf_text<'a>(node: &'a Value, field: &str) -> Option<&'a str> {
     node.get(field)?.get("value")?.as_str()
 }
@@ -161,6 +305,66 @@ fn parse_id(name: &Value) -> Result<u64, String> {
         .map_err(|err| format!("bad entity instance name #{text}: {err}"))
 }
 
+/// One entity instance read into the domain inventories — the shared
+/// walk of the strict tree and the recovered partial spine.
+fn push_instance(
+    instance: &Value,
+    records: &mut Vec<EntityRecord>,
+    references: &mut Vec<(u64, String)>,
+) -> Result<(), String> {
+    if let Some(simple) = instance.get("simple_entity_instance") {
+        let id = parse_id(simple)?;
+        let keyword = keyword_of(simple, "simple_record")
+            .ok_or("simple record missing its keyword")?
+            .to_string();
+        records.push(EntityRecord {
+            id,
+            keyword,
+            parts: Vec::new(),
+            complex: false,
+        });
+        return Ok(());
+    }
+    if let Some(complex) = instance.get("complex_entity_instance") {
+        let id = parse_id(complex)?;
+        let parts: Vec<String> = complex
+            .get("subsuper_record")
+            .and_then(Value::as_array)
+            .ok_or("complex record missing its subsuper record")?
+            .iter()
+            .map(|part| {
+                let record = part
+                    .get("simple_record")
+                    .ok_or("part record wrapper missing")?;
+                leaf_text(record, "keyword")
+                    .map(str::to_string)
+                    .ok_or_else(|| "part record missing its keyword".to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        records.push(EntityRecord {
+            id,
+            keyword: String::new(),
+            parts,
+            complex: true,
+        });
+        return Ok(());
+    }
+    if let Some(external) = instance.get("external_reference_instance") {
+        let id = parse_id(external)?;
+        let target = leaf_text(external, "external_anchor")
+            .ok_or("external reference missing its anchor")?;
+        references.push((
+            id,
+            target
+                .strip_prefix('<')
+                .and_then(|rest| rest.strip_suffix('>'))
+                .ok_or("external anchor must be wrapped in <>")?
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn population_from_tree(tree: &Value) -> Result<Population, String> {
     let mut file_schemas = Vec::new();
     let mut records = Vec::new();
@@ -197,52 +401,7 @@ fn population_from_tree(tree: &Value) -> Result<Population, String> {
             continue;
         };
         for instance in instances {
-            if let Some(simple) = instance.get("simple_entity_instance") {
-                let id = parse_id(simple)?;
-                let keyword = keyword_of(simple, "simple_record")
-                    .ok_or("simple record missing its keyword")?
-                    .to_string();
-                records.push(EntityRecord {
-                    id,
-                    keyword,
-                    parts: Vec::new(),
-                    complex: false,
-                });
-            } else if let Some(complex) = instance.get("complex_entity_instance") {
-                let id = parse_id(complex)?;
-                let parts: Vec<String> = complex
-                    .get("subsuper_record")
-                    .and_then(Value::as_array)
-                    .ok_or("complex record missing its subsuper record")?
-                    .iter()
-                    .map(|part| {
-                        let record = part
-                            .get("simple_record")
-                            .ok_or("part record wrapper missing")?;
-                        leaf_text(record, "keyword")
-                            .map(str::to_string)
-                            .ok_or_else(|| "part record missing its keyword".to_string())
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                records.push(EntityRecord {
-                    id,
-                    keyword: String::new(),
-                    parts,
-                    complex: true,
-                });
-            } else if let Some(external) = instance.get("external_reference_instance") {
-                let id = parse_id(external)?;
-                let target = leaf_text(external, "external_anchor")
-                    .ok_or("external reference missing its anchor")?;
-                references.push((
-                    id,
-                    target
-                        .strip_prefix('<')
-                        .and_then(|rest| rest.strip_suffix('>'))
-                        .ok_or("external anchor must be wrapped in <>")?
-                        .to_string(),
-                ));
-            }
+            push_instance(instance, &mut records, &mut references)?;
         }
     }
 
