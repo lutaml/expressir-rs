@@ -1665,20 +1665,304 @@ pub fn add_provenance(longform: &mut Value, sections: &[Section]) {
     }
 }
 
+/// G.2: redeclared (renamed) attributes become derived attributes
+/// whose expression is `SELF\supertype.old_name` — the ruby
+/// convert_renamed_attributes!. The ruby pass always emits the
+/// qualified form, so a conversion with no resolvable supertype is
+/// skipped rather than emitted.
+pub fn convert_renamed_attributes(longform: &mut Value) {
+    let Some(Value::Array(entities)) = longform.get_mut("entities") else {
+        return;
+    };
+    for entity in entities {
+        let Some(Value::Array(attributes)) = entity.get_mut("attributes") else {
+            continue;
+        };
+        for attr in attributes.iter_mut() {
+            let Some(supertype_ref) = attr
+                .get("supertype_attribute")
+                .filter(|v| !v.is_null())
+                .cloned()
+            else {
+                continue;
+            };
+            let (old_name, supertype) = supertype_target(&supertype_ref);
+            let (Some(old_name), Some(supertype)) = (old_name, supertype) else {
+                continue;
+            };
+            let snippet = format!(
+                "SCHEMA __x__;\nENTITY __e__;\nWHERE w1 : SELF\\{}.{};\nEND_ENTITY;\nEND_SCHEMA;\n",
+                supertype, old_name
+            );
+            let Ok(tree) = ParsedTree::parse(&snippet) else {
+                continue;
+            };
+            let Ok(wire) = tree.to_model_json("snippet.exp") else {
+                continue;
+            };
+            let Some(expression) = wire
+                .pointer("/schemas/0/entities/0/where_rules/0/expression")
+                .cloned()
+            else {
+                continue;
+            };
+            let mut derived = serde_json::Map::new();
+            derived.insert(
+                "_class".into(),
+                Value::from("Expressir::Model::Declarations::DerivedAttribute"),
+            );
+            let id = attr
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| Some(old_name.clone()));
+            if let Some(id) = id {
+                derived.insert("id".into(), Value::from(id));
+            }
+            if let Some(t) = attr.get("type").filter(|v| !v.is_null()) {
+                derived.insert("type".into(), t.clone());
+            }
+            derived.insert("expression".into(), expression);
+            *attr = Value::Object(derived);
+        }
+    }
+}
+
+/// `(old_name, supertype)` — a bare qualified attribute has only the
+/// attribute name; the ruby supertype_target.
+fn supertype_target(reference: &Value) -> (Option<String>, Option<String>) {
+    let class = reference
+        .get("_class")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if class.ends_with("::AttributeReference") {
+        let old_name = reference
+            .pointer("/attribute/id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let supertype = reference
+            .get("ref")
+            .filter(|g| {
+                g.get("_class")
+                    .and_then(Value::as_str)
+                    .is_some_and(|c| c.ends_with("::GroupReference"))
+            })
+            .and_then(|g| g.pointer("/entity/id"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        (old_name, supertype)
+    } else {
+        (
+            reference
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            None,
+        )
+    }
+}
+
+/// G.NM.2: string literals carrying schema-qualified names (TYPEOF
+/// arguments `'SCHEMA.TYPE'`) move to the longform name — the ruby
+/// rewrite_qualified_strings! over every Literals::String `value`.
+pub fn rewrite_qualified_strings(longform: &mut Value, prefixes: &[String], longform_name: &str) {
+    match longform {
+        Value::Object(obj) => {
+            let is_string_literal = obj
+                .get("_class")
+                .and_then(Value::as_str)
+                .is_some_and(|c| c.ends_with("Literals::String"));
+            if is_string_literal {
+                if let Some(Value::String(v)) = obj.get_mut("value") {
+                    if let Some(rewritten) = strip_schema_prefix(v, prefixes, longform_name) {
+                        *v = rewritten;
+                    }
+                }
+            }
+            for (_key, child) in obj.iter_mut() {
+                rewrite_qualified_strings(child, prefixes, longform_name);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                rewrite_qualified_strings(item, prefixes, longform_name);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `SCHEMA.`-prefixed heads over the closure names, case-insensitive.
+fn strip_schema_prefix(value: &str, prefixes: &[String], longform_name: &str) -> Option<String> {
+    let dot = value.find('.')?;
+    let head = &value[..dot];
+    if prefixes
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case(head) && !head.is_empty())
+    {
+        Some(format!(
+            "{}.{}",
+            longform_name.to_uppercase(),
+            &value[dot + 1..]
+        ))
+    } else {
+        None
+    }
+}
+
 /// The SHTOLO longform over a resolved repository wire — the full
 /// stage order the ruby Shtolo runs: the G.1 closure copy with the
-/// id munges, subtype-constraint elimination, prune, the supertype
-/// reductions, the entity conversions, the extensible
-/// enumeration/select folding, and the provenance remark.
+/// id munges, prune, the supertype reductions, the extensible
+/// enumeration/select folding, subtype-constraint elimination, the
+/// entity and renamed-attribute conversions, the qualified-string
+/// rewrites, and the provenance remark.
 pub fn shtolo_flatten(root_id: &str, repository: &Value, longform_name: &str) -> Value {
     let sections = closure(root_id, repository);
     let mut longform = flatten(root_id, repository, longform_name);
-    eliminate_subtype_constraints(&mut longform);
+    // The ruby build_longform order: prune (the annex G.1.9 pass,
+    // including the supertype reductions over the still-standing
+    // constraints) runs BEFORE the stage-2 rewrites, so
+    // subtype-constraint elimination moves already-reduced expressions
+    // into the entities.
     prune(&mut longform);
     prune_supertype_expressions(&mut longform);
-    convert_entities(&mut longform);
     resolve_extensible_enumerations(&mut longform);
     resolve_extensible_selects(&mut longform);
+    eliminate_subtype_constraints(&mut longform);
+    convert_entities(&mut longform);
+    convert_renamed_attributes(&mut longform);
+    let prefixes: Vec<String> = sections.iter().map(|s| s.id.to_uppercase()).collect();
+    rewrite_qualified_strings(&mut longform, &prefixes, longform_name);
     add_provenance(&mut longform, &sections);
     longform
+}
+
+#[cfg(test)]
+mod stage_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn renamed_attributes_become_derived() {
+        let mut lf = json!({
+            "_class": "Expressir::Model::Declarations::Schema",
+            "id": "longform",
+            "entities": [
+                { "_class": "Expressir::Model::Declarations::Entity", "id": "sub",
+                  "supertype_expression": { "_class": "Expressir::Model::References::SimpleReference", "id": "base" },
+                  "attributes": [
+                    { "_class": "Expressir::Model::Declarations::Attribute", "id": "the_name",
+                      "supertype_attribute": { "_class": "Expressir::Model::References::AttributeReference",
+                                               "ref": { "_class": "Expressir::Model::References::GroupReference",
+                                                        "entity": { "_class": "Expressir::Model::References::SimpleReference", "id": "base" } },
+                                               "attribute": { "_class": "Expressir::Model::References::SimpleReference", "id": "name" } },
+                      "type": { "_class": "Expressir::Model::DataTypes::String" } },
+                    { "_class": "Expressir::Model::Declarations::Attribute", "id": "plain",
+                      "type": { "_class": "Expressir::Model::DataTypes::String" } }
+                  ] }
+            ]
+        });
+        convert_renamed_attributes(&mut lf);
+        let attrs = lf.pointer("/entities/0/attributes").unwrap();
+        let derived = &attrs[0];
+        assert_eq!(
+            derived.get("_class").and_then(Value::as_str),
+            Some("Expressir::Model::Declarations::DerivedAttribute")
+        );
+        assert_eq!(derived.get("id").and_then(Value::as_str), Some("the_name"));
+        let text = derived.pointer("/expression").unwrap().to_string();
+        assert!(
+            text.contains("base"),
+            "expression names the supertype: {text}"
+        );
+        assert!(
+            text.contains("name"),
+            "expression names the attribute: {text}"
+        );
+        assert!(derived.get("supertype_attribute").is_none());
+        assert_eq!(
+            attrs[1].get("_class").and_then(Value::as_str),
+            Some("Expressir::Model::Declarations::Attribute"),
+            "plain attributes stay"
+        );
+    }
+
+    #[test]
+    fn qualified_strings_move_to_the_longform_name() {
+        let mut lf = json!({
+            "_class": "Expressir::Model::Declarations::Schema",
+            "id": "longform",
+            "rules": [
+                { "_class": "Expressir::Model::Declarations::Rule", "id": "r",
+                  "where_rules": [
+                    { "_class": "Expressir::Model::Declarations::WhereRule", "id": "wr1",
+                      "expression": { "_class": "Expressir::Model::Expressions::FunctionCall",
+                        "function": { "_class": "Expressir::Model::References::SimpleReference", "id": "TYPEOF" },
+                        "parameters": [
+                          { "_class": "Expressir::Model::Literals::String", "value": "ARM_ARM.APPLICATION_PROTOCOL" },
+                          { "_class": "Expressir::Model::Literals::String", "value": "arm_arm.property" },
+                          { "_class": "Expressir::Model::Literals::String", "value": "OTHER_SCHEMA.TYPE" },
+                          { "_class": "Expressir::Model::Literals::String", "value": "unrelated string.no dot prefix" }
+                        ] } }
+                  ] }
+            ]
+        });
+        rewrite_qualified_strings(&mut lf, &["ARM_ARM".to_string()], "longform");
+        let params = lf
+            .pointer("/rules/0/where_rules/0/expression/parameters")
+            .unwrap();
+        assert_eq!(
+            params[0].get("value").and_then(Value::as_str),
+            Some("LONGFORM.APPLICATION_PROTOCOL")
+        );
+        assert_eq!(
+            params[1].get("value").and_then(Value::as_str),
+            Some("LONGFORM.property"),
+            "case-insensitive prefix"
+        );
+        assert_eq!(
+            params[2].get("value").and_then(Value::as_str),
+            Some("OTHER_SCHEMA.TYPE"),
+            "non-closure prefixes stay"
+        );
+        assert_eq!(
+            params[3].get("value").and_then(Value::as_str),
+            Some("unrelated string.no dot prefix")
+        );
+    }
+
+    #[test]
+    fn orchestrator_runs_the_renamed_attribute_pass() {
+        let repo = json!({
+            "schemas": [
+                { "_class": "Expressir::Model::Declarations::Schema", "id": "root",
+                  "interfaces": [],
+                  "entities": [
+                    { "_class": "Expressir::Model::Declarations::Entity", "id": "base",
+                      "attributes": [ { "_class": "Expressir::Model::Declarations::Attribute", "id": "name",
+                                        "type": { "_class": "Expressir::Model::DataTypes::String" } } ] },
+                    { "_class": "Expressir::Model::Declarations::Entity", "id": "sub",
+                      "supertype_expression": { "_class": "Expressir::Model::References::SimpleReference", "id": "base" },
+                      "attributes": [ { "_class": "Expressir::Model::Declarations::Attribute", "id": "renamed",
+                                        "supertype_attribute": { "_class": "Expressir::Model::References::AttributeReference",
+                                                                 "ref": { "_class": "Expressir::Model::References::GroupReference",
+                                                                          "entity": { "_class": "Expressir::Model::References::SimpleReference", "id": "base" } },
+                                                                 "attribute": { "_class": "Expressir::Model::References::SimpleReference", "id": "name" } },
+                                        "type": { "_class": "Expressir::Model::DataTypes::String" } } ] }
+                  ] }
+            ]
+        });
+        let longform = shtolo_flatten("root", &repo, "longform");
+        let attrs = longform.pointer("/entities/1/attributes").unwrap();
+        assert_eq!(
+            attrs[0].get("_class").and_then(Value::as_str),
+            Some("Expressir::Model::Declarations::DerivedAttribute")
+        );
+        let provenance = longform
+            .get("remark_items")
+            .and_then(Value::as_array)
+            .map(|items| items.len())
+            .unwrap_or(0);
+        assert!(provenance >= 1, "provenance rides the orchestrator");
+    }
 }
