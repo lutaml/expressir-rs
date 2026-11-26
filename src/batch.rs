@@ -93,6 +93,27 @@ fn compile_one(job: (String, String)) -> BatchOutcome {
     }
 }
 
+/// A deterministic parallel corpus sweep (#627, the parsanol
+/// portable/parallel layer adopted through the batch workers):
+/// compiles every job on the worker pool and returns the outcomes in
+/// INPUT order — the raw batch channel is completion-order, so a
+/// sweep re-orders by the jobs' wire paths to stay reproducible.
+/// Duplicate wire paths keep encounter order among themselves.
+pub fn sweep(jobs: Vec<(String, String)>, workers: usize) -> Vec<BatchOutcome> {
+    let mut order: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::with_capacity(jobs.len());
+    for (i, (_, wire_path)) in jobs.iter().enumerate() {
+        order.entry(wire_path.clone()).or_insert(i);
+    }
+    let rx = parse_batch(jobs, workers);
+    let mut outcomes: Vec<(usize, BatchOutcome)> = rx
+        .iter()
+        .filter_map(|outcome| order.get(&outcome.path).map(|&i| (i, outcome)))
+        .collect();
+    outcomes.sort_by_key(|(i, _)| *i);
+    outcomes.into_iter().map(|(_, outcome)| outcome).collect()
+}
+
 fn try_compile(read_path: &str, wire_path: &str) -> Result<Wire, String> {
     let raw = std::fs::read(read_path).map_err(|e| format!("read {read_path}: {e}"))?;
     // Mirror Expressir::Express::Parser.strip_bom: a UTF-8 BOM would
