@@ -9,6 +9,11 @@
 
 [workspace]
 dependencies_update = true
+# The crate stays on the 2.4.x line mirroring the gem train (owner
+# decision 2026-11-26): semver-checks flags struct-literal breakage as
+# a major bump, but the wire API the ext consumes is pinned by the
+# ENGINE-COMPAT manifest instead of the crate major.
+semver_check = false
 # NOTE: the release-plz binary bundled by the action does not know
 # the trusted_publishing field (unknown-field parse error) — the
 # crate publish runs through the dedicated publish-crate job in
