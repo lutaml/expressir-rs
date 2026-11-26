@@ -381,6 +381,7 @@ pub fn flatten(root_id: &str, repository: &Value, longform_name: &str) -> Value 
 
     // Copy each schema's declarations through its resolution order.
     let mut buckets: std::collections::HashMap<&str, Vec<Value>> = std::collections::HashMap::new();
+    let mut reference_entities: Vec<String> = Vec::new();
     for schema in &order {
         let Some(schema_id) = schema.get("id").and_then(Value::as_str) else {
             continue;
@@ -418,6 +419,49 @@ pub fn flatten(root_id: &str, repository: &Value, longform_name: &str) -> Value 
                 }
             }
         }
+
+        // G.1.6: REFERENCE entities keep dependent-instantiability
+        // semantics; the originals accumulate over the whole closure
+        // (the ruby pass does not dedupe, and neither does this).
+        if let Some(Value::Array(interfaces)) = schema.get("interfaces") {
+            for iface in interfaces {
+                if iface.get("kind").and_then(Value::as_str) != Some("REFERENCE") {
+                    continue;
+                }
+                let Some(target_name) = interface_target_name(iface) else {
+                    continue;
+                };
+                let Some(target) = by_name.get(target_name.to_lowercase().as_str()) else {
+                    continue;
+                };
+                if let Some(Value::Array(items)) = iface.get("items") {
+                    for item in items {
+                        let original = match item.get("ref") {
+                            Some(Value::String(name)) => Some(name.as_str()),
+                            Some(reference) => reference.get("id").and_then(Value::as_str),
+                            None => None,
+                        };
+                        let Some(original) = original else {
+                            continue;
+                        };
+                        let entity_there = target
+                            .get("entities")
+                            .and_then(Value::as_array)
+                            .map(|entities| {
+                                entities.iter().any(|e| {
+                                    e.get("id")
+                                        .and_then(Value::as_str)
+                                        .is_some_and(|id| id.eq_ignore_ascii_case(original))
+                                })
+                            })
+                            .unwrap_or(false);
+                        if entity_there {
+                            reference_entities.push(original.to_lowercase());
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // The longform schema: interfaces dissolved (G.1.2).
@@ -431,6 +475,101 @@ pub fn flatten(root_id: &str, repository: &Value, longform_name: &str) -> Value 
     for key in DECL_COLLECTIONS {
         let items = buckets.remove(key).unwrap_or_default();
         out.insert((*key).to_string(), Value::Array(items));
+    }
+
+    // G.1.6: the dependent-instantiability rule and function ride the
+    // annex template verbatim (the ruby dependent_template_src) when
+    // any REFERENCE entity took part in the closure.
+    if !reference_entities.is_empty() {
+        let list = reference_entities
+            .iter()
+            .map(|s| s.to_uppercase())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let union = reference_entities.join("+");
+        let snippet = format!(
+            "SCHEMA __dependent__;\n\
+RULE validate_dependently_instantiable_entity_data_types FOR ({list});\n\
+LOCAL\n\
+  number_of_input_instances : INTEGER;\n\
+  previous_in_chain : LIST OF GENERIC := [];\n\
+  set_of_input_types : SET OF STRING := [];\n\
+  all_instances : SET OF GENERIC := [];\n\
+END_LOCAL;\n\
+all_instances := {union};\n\
+WHERE\n\
+  wr1: dependently_instantiated(all_instances, set_of_input_types, previous_in_chain);\n\
+END_RULE;\n\
+\n\
+FUNCTION dependently_instantiated(\n\
+    set_of_input_instances : SET OF GENERIC:igen;\n\
+    set_of_input_types      : SET OF STRING;\n\
+    previous_in_chain       : LIST OF GENERIC:cgen): BOOLEAN;\n\
+LOCAL\n\
+  number_of_input_instances : INTEGER;\n\
+  number_of_referring_instances : INTEGER;\n\
+  bag_of_referring_instances : BAG OF GENERIC:igen := [];\n\
+  dependently_instantiated_flag : BOOLEAN;\n\
+  previous_in_chain_plus : LIST OF GENERIC:cgen := [];\n\
+  result : BOOLEAN := true;\n\
+  set_of_types : SET OF STRING := [];\n\
+END_LOCAL;\n\
+IF EXISTS(set_of_input_instances) THEN\n\
+  number_of_input_instances := SIZEOF(set_of_input_instances);\n\
+  set_of_input_types := set_of_input_types + 'GENERIC';\n\
+  REPEAT i := 1 TO number_of_input_instances;\n\
+    bag_of_referring_instances := USEDIN(set_of_input_instances[i], '');\n\
+    IF EXISTS(bag_of_referring_instances) THEN\n\
+      number_of_referring_instances := SIZEOF(bag_of_referring_instances);\n\
+      dependently_instantiated_flag := false;\n\
+      REPEAT j := 1 TO number_of_referring_instances;\n\
+        set_of_types := TYPEOF(bag_of_referring_instances[j]);\n\
+        IF set_of_types <= set_of_input_types THEN\n\
+          IF NOT (bag_of_referring_instances[j] IN previous_in_chain) THEN\n\
+            previous_in_chain_plus := previous_in_chain +\n\
+                                      set_of_input_instances[i];\n\
+            IF dependently_instantiated([bag_of_referring_instances[j]],\n\
+                                        set_of_input_types,\n\
+                                        previous_in_chain_plus) THEN\n\
+              dependently_instantiated_flag := true;\n\
+              ESCAPE;\n\
+            ELSE\n\
+              SKIP;\n\
+            END_IF;\n\
+          END_IF;\n\
+        ELSE\n\
+          dependently_instantiated_flag := true;\n\
+          ESCAPE;\n\
+        END_IF;\n\
+      END_REPEAT;\n\
+      IF NOT dependently_instantiated_flag THEN\n\
+        RETURN(false);\n\
+      END_IF;\n\
+    ELSE\n\
+      RETURN(false);\n\
+    END_IF;\n\
+  END_REPEAT;\n\
+ELSE\n\
+  RETURN(false);\n\
+END_IF;\n\
+RETURN(true);\n\
+END_FUNCTION;\n\
+END_SCHEMA;\n"
+        );
+        if let Ok(tree) = ParsedTree::parse(&snippet) {
+            if let Ok(wire) = tree.to_model_json("snippet.exp") {
+                if let Some(rule) = wire.pointer("/schemas/0/rules/0").cloned() {
+                    if let Some(Value::Array(rules)) = out.get_mut("rules") {
+                        rules.push(rule);
+                    }
+                }
+                if let Some(declared) = wire.pointer("/schemas/0/functions/0").cloned() {
+                    if let Some(Value::Array(functions)) = out.get_mut("functions") {
+                        functions.push(declared);
+                    }
+                }
+            }
+        }
     }
     Value::Object(out)
 }
@@ -1964,5 +2103,84 @@ mod stage_tests {
             .map(|items| items.len())
             .unwrap_or(0);
         assert!(provenance >= 1, "provenance rides the orchestrator");
+    }
+}
+
+#[cfg(test)]
+mod g16_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn reference_entities_emit_the_dependent_rule_and_function() {
+        let repo = json!({
+            "schemas": [
+                { "_class": "Expressir::Model::Declarations::Schema", "id": "base_schema",
+                  "interfaces": [],
+                  "entities": [ { "_class": "Expressir::Model::Declarations::Entity", "id": "shared",
+                                  "attributes": [ { "_class": "Expressir::Model::Declarations::Attribute", "id": "v",
+                                                    "type": { "_class": "Expressir::Model::DataTypes::Integer" } } ] } ] },
+                { "_class": "Expressir::Model::Declarations::Schema", "id": "sch",
+                  "interfaces": [
+                    { "_class": "Expressir::Model::Declarations::Interface", "kind": "REFERENCE",
+                      "schema": { "_class": "Expressir::Model::References::SimpleReference", "id": "base_schema" },
+                      "items": [ { "_class": "Expressir::Model::Declarations::InterfaceItem",
+                                   "ref": { "_class": "Expressir::Model::References::SimpleReference", "id": "shared" } } ] } ],
+                  "entities": [ { "_class": "Expressir::Model::Declarations::Entity", "id": "viewer",
+                                  "attributes": [ { "_class": "Expressir::Model::Declarations::Attribute", "id": "s",
+                                                    "type": { "_class": "Expressir::Model::References::SimpleReference", "id": "shared" } } ] } ] }
+            ]
+        });
+        let lf = flatten("sch", &repo, "sch");
+        let rules = lf.get("rules").and_then(Value::as_array).unwrap();
+        let rule = rules.iter().find(|r| {
+            r.get("id").and_then(Value::as_str)
+                == Some("validate_dependently_instantiable_entity_data_types")
+        });
+        assert!(rule.is_some(), "the annex rule rides the longform");
+        let applies = rule
+            .unwrap()
+            .get("applies_to")
+            .and_then(Value::as_array)
+            .map(|refs| {
+                refs.iter()
+                    .filter_map(|r| r.get("id").and_then(Value::as_str))
+                    .map(str::to_lowercase)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert!(applies.contains(&"shared".to_string()));
+        let fns = lf.get("functions").and_then(Value::as_array).unwrap();
+        assert!(
+            fns.iter()
+                .any(|f| f.get("id").and_then(Value::as_str) == Some("dependently_instantiated")),
+            "the annex function rides the longform"
+        );
+    }
+
+    #[test]
+    fn use_interfaces_do_not_emit_the_dependent_rule() {
+        let repo = json!({
+            "schemas": [
+                { "_class": "Expressir::Model::Declarations::Schema", "id": "base",
+                  "interfaces": [],
+                  "entities": [ { "_class": "Expressir::Model::Declarations::Entity", "id": "shared" } ] },
+                { "_class": "Expressir::Model::Declarations::Schema", "id": "sch",
+                  "interfaces": [
+                    { "_class": "Expressir::Model::Declarations::Interface", "kind": "USE",
+                      "schema": { "_class": "Expressir::Model::References::SimpleReference", "id": "base" },
+                      "items": [ { "_class": "Expressir::Model::Declarations::InterfaceItem",
+                                   "ref": { "_class": "Expressir::Model::References::SimpleReference", "id": "shared" } } ] } ],
+                  "entities": [] }
+            ]
+        });
+        let lf = flatten("sch", &repo, "sch");
+        assert!(
+            lf.get("rules")
+                .and_then(Value::as_array)
+                .map(|r| r.is_empty())
+                .unwrap_or(true),
+            "USE items carry no dependent rule"
+        );
     }
 }
