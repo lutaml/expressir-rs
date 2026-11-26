@@ -29,6 +29,10 @@ serde = "serde"
 eleemnts = "eleemnts"
 fullset = "fullset"
 
+# The --IPn: plain-form remark anchor (expressir#753) rides generated
+# changelog lines; typos segments it into the word "Pn".
+Pn = "Pn"
+
 # EXPRESSdoc (the WG12 display format, expressir#91): typos segments
 # the CamelCase compound into "EXPRES".
 [default.extend-identifiers]
