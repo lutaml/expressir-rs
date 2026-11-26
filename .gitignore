@@ -1,2 +1,3 @@
 /target/
-Cargo.lock
+# Cargo.lock is TRACKED (the parsanol pin rides it); release-plz
+# refuses a lockfile that is both committed and ignored.
