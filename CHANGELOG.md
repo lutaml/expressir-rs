@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Other
+
+- The deterministic parallel corpus sweep ([#627](https://github.com/lutaml/expressir-rs/pull/627)) by @[object]
+
 ### Fixed
 
 - The plain form ends at END_SCHEMA; the pair test follows expressir main (lutaml/expressir#758) by @[object]
