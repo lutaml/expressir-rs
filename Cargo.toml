@@ -1,6 +1,6 @@
 [package]
 name = "expressir"
-version = "2.5.1"
+version = "2.5.2"
 edition = "2021"
 rust-version = "1.86"
 description = "Rust core for Expressir: EXPRESS schema parsing and model building on parsanol"
