@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
+- Release v2.5.1 by @[object]
+- Ffi + wasm: the P21 recovery envelope over the C ABI and wasm ([#627](https://github.com/lutaml/expressir-rs/pull/627)) by @[object]
+
+### Other
+
 - Ffi + wasm: the P21 recovery envelope over the C ABI and wasm ([#627](https://github.com/lutaml/expressir-rs/pull/627)) by @[object]
 
 ## [2.5.0] - 2026-11-27
