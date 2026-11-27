@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-27
+
+### Changed
+
+- The crate joins the family's 2.5.0 cut-over line: the gem shipped
+  the deliberate remark-surface cut-over as 2.5.0, and the engine
+  version follows (the ext pin v0.1.66 + ENGINE-COMPAT.json map the
+  native bridge; the ext tag line stays v0.1.x by design).
+
 ### Other
 
 - The deterministic parallel corpus sweep ([#627](https://github.com/lutaml/expressir-rs/pull/627)) by @[object]
