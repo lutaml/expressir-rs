@@ -130,6 +130,12 @@ impl ParsedTree {
         let mut arena = Box::new(AstArena::for_input(source.len()));
         arena.set_input(source.to_string());
         let mut parser = PortableParser::new(grammar, source, &mut arena);
+        // The wasm32 host call stack is the constraint behind
+        // parsanol's 1024 default, and the string-literal grammar
+        // spends frames per character, so real schemas need the
+        // raised budget on the browser tier.
+        #[cfg(target_arch = "wasm32")]
+        parser.set_max_call_depth(8192);
         let raw = parser.parse()?;
         let root = to_parslet_compatible(&raw, arena.as_mut(), source);
         Ok(Self {
