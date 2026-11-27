@@ -318,6 +318,11 @@ mod bindings {
     }
 
     #[wasm_bindgen]
+    pub fn parse_population_recovering(source: String) -> Result<String, String> {
+        super::parse_population_recovering_json(source)
+    }
+
+    #[wasm_bindgen]
     pub fn validate_population(entities_json: String, source: String) -> Result<String, String> {
         super::validate_population_json(entities_json, source)
     }
@@ -426,4 +431,13 @@ pub fn flatten_schema_json(
         serde_json::from_str(&repository_wire).map_err(|e| format!("wire json: {e}"))?;
     let longform = crate::expand::shtolo_flatten(&root_id, &wire, &longform_name);
     serde_json::to_string(&longform).map_err(|e| format!("serialize: {e}"))
+}
+
+/// The P21 recovery envelope over raw exchange-structure text (#627):
+/// the population on well-formed input, the failure forensics
+/// (failure wire, consumed extent, resync spans, partial records) on
+/// malformed input. Returns the envelope as JSON.
+pub fn parse_population_recovering_json(input: String) -> Result<String, String> {
+    let recovered = crate::population::parse_population_recovering(&input)?;
+    serde_json::to_string(&recovered).map_err(|e| format!("serialize: {e}"))
 }

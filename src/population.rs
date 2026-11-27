@@ -32,7 +32,7 @@ fn artifact() -> Result<&'static PargArtifact, String> {
 
 /// A parsed entity record: `#12=KEYWORD(arg, ...)` or its complex
 /// form `#12=(A(1)(2)B(3))` (the part keywords in `parts`).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct EntityRecord {
     pub id: u64,
     pub keyword: String,
@@ -41,7 +41,7 @@ pub struct EntityRecord {
     pub complex: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Population {
     pub file_schemas: Vec<String>,
     pub records: Vec<EntityRecord>,
@@ -113,7 +113,7 @@ pub struct ResyncSpan {
 /// far the parse got, the spans the inferred/declared resync skipped,
 /// and the records the deepest repetition prefix had already matched —
 /// never a silently-repaired document.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct RecoveredPopulation {
     pub ok: bool,
     pub population: Option<Population>,
