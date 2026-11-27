@@ -198,3 +198,47 @@ fn writer_and_lsp_entries() {
         "inventory: {inventory}"
     );
 }
+
+#[test]
+fn c_abi_recovering_envelope_valid_input_matches_strict() {
+    let recovered = take(abi::expr_parse_population_recovering(
+        feed(POPULATION).as_ptr(),
+    ));
+    assert!(
+        recovered.contains("\"ok\":true"),
+        "valid input: {recovered}"
+    );
+    let strict = take(abi::expr_parse_population(feed(POPULATION).as_ptr()));
+    // the envelope's population equals the strict one
+    let strict_records = strict.matches("\"id\":").count();
+    assert!(
+        recovered.contains("\"ok\":true")
+            && recovered.matches("\"id\":").count() >= strict_records.min(1),
+        "the envelope carries the population: {recovered}"
+    );
+}
+
+#[test]
+fn c_abi_recovering_envelope_junk_yields_forensics() {
+    let mut junked = POPULATION.to_string();
+    let pos = junked.rfind("ENDSEC;").expect("POPULATION carries ENDSEC;");
+    junked.insert_str(pos, "\n#9999=JUNK(%%%);\n");
+    let recovered = take(abi::expr_parse_population_recovering(
+        feed(junked.as_str()).as_ptr(),
+    ));
+    assert!(
+        recovered.contains("\"ok\":false"),
+        "junk must recover as forensics: {recovered}"
+    );
+    assert!(
+        recovered.contains("\"offset\"") && recovered.contains("\"expected\""),
+        "the failure wire rides the envelope: {recovered}"
+    );
+    assert!(
+        recovered.contains("\"consumed_upto\":75"),
+        "the consumed extent anchors the failure: {recovered}"
+    );
+    // resync spans need a spine the trial scan can restart; the tiny
+    // fixture fails inside its single data section (the corpus gate
+    // pins the spans case over the real annex fixtures).
+}

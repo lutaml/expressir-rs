@@ -521,3 +521,21 @@ pub extern "C" fn expr_flatten_schema(
         }
     }
 }
+
+/// The P21 recovery envelope over raw exchange-structure text (#627):
+/// the population on well-formed input, the failure forensics on
+/// malformed input. Returns the envelope as JSON.
+#[no_mangle]
+pub extern "C" fn expr_parse_population_recovering(source: *const c_char) -> *mut c_char {
+    let Some(input) = input(source) else {
+        set_error("input is NULL");
+        return std::ptr::null_mut();
+    };
+    match crate::wasm::parse_population_recovering_json(input) {
+        Ok(json) => out(json),
+        Err(err) => {
+            set_error(&err);
+            std::ptr::null_mut()
+        }
+    }
+}
