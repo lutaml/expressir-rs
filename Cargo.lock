@@ -142,7 +142,7 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "expressir"
-version = "2.4.71"
+version = "2.5.0"
 dependencies = [
  "bincode",
  "parsanol",
@@ -281,9 +281,9 @@ dependencies = [
 
 [[package]]
 name = "parsanol-derive"
-version = "1.5.22"
+version = "1.5.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4797efba7c0b36e4edb7b248132956fb11c894ee8f7b08ba1b30ff1bf5cff1cb"
+checksum = "50186394f75888db0ccb6d38d71a5408558f1476d2e90e31e39f2f356c92ec51"
 dependencies = [
  "proc-macro2",
  "quote",
