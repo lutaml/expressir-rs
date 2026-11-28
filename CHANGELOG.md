@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
+- Release v2.5.2 by @[object]
+- The schema parses ride an 8192 call-depth budget ([#627](https://github.com/lutaml/expressir-rs/pull/627)) by @[object]
+
+### Other
+
 - The schema parses ride an 8192 call-depth budget ([#627](https://github.com/lutaml/expressir-rs/pull/627)) by @[object]
 
 ### Other
